@@ -21,8 +21,8 @@ def generate_launch_description():
 
     robot_description = ParameterValue(
         Command(['xacro ', PathJoinSubstitution([
-                        FindPackageShare('ackermann_vehicle_description'),
-                        'urdf',
+                        FindPackageShare('vehicle_gazebo'),
+                        'models',
                         'em_3905_base.urdf.xacro'
                     ])]),
         value_type=str
@@ -35,7 +35,7 @@ def generate_launch_description():
         SetEnvironmentVariable(
             'GZ_SIM_RESOURCE_PATH',
             PathJoinSubstitution([
-                FindPackageShare('ackermann_vehicle_description')
+                FindPackageShare('vehicle_gazebo')
             ])
         ),
 
