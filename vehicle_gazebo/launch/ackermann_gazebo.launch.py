@@ -15,9 +15,9 @@ def generate_launch_description():
 
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default=True)
+    gz_args = LaunchConfiguration('gz_args', default='')
 
     # Gazebo launch file
-
     gazebo_launch = PathJoinSubstitution([
         FindPackageShare('ros_gz_sim'),
         'launch',
@@ -33,6 +33,14 @@ def generate_launch_description():
                 '-topic', 'robot_description',
                 '-allow_renaming', 'true',
                 '-z', '0.5'])
+    
+    gazebo_world = PathJoinSubstitution(
+        [
+            FindPackageShare('vehicle_gazebo'),
+            'worlds',
+            'empty.sdf',
+        ]
+    )
 
     # Robot
     robot_description = ParameterValue(
@@ -78,14 +86,15 @@ def generate_launch_description():
         Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
-        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+                   "imu@sensor_msgs/msg/Imu@gz.msgs.IMU"],
         output='screen'
         ),
 
         # Launch Gazebo
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(gazebo_launch),
-            launch_arguments=[('gz_args', [' -r -v 1 empty.sdf'])]
+            launch_arguments=[('gz_args', [gz_args, ' -r -v 1 ', gazebo_world])]
             ),
 
         # Spawn controllers after robot is spawned
