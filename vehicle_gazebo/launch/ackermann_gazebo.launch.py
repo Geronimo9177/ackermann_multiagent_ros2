@@ -79,6 +79,14 @@ def generate_launch_description():
                    ],
     )
 
+    #Extended Kalman Filter
+    ekf_config = PathJoinSubstitution(
+        [
+            FindPackageShare('vehicle_gazebo'),
+            'config',
+            'ackermann_ekf.yaml',
+        ]
+    )
 
     return LaunchDescription([
 
@@ -134,4 +142,13 @@ def generate_launch_description():
             }],
             output='screen'
         ),
+
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[ekf_config, {'use_sim_time': use_sim_time}],
+            remappings=[('odometry/filtered', 'odometry/filtered')]
+        )
     ])
