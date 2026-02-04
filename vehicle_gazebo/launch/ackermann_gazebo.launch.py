@@ -1,24 +1,40 @@
 from launch import LaunchDescription
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+from launch.actions import RegisterEventHandler, DeclareLaunchArgument
+from launch.event_handlers import OnProcessExit
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
 
-    ros_gz_sim_path = get_package_share_directory('ros_gz_sim')
+    # Launch Arguments
+    use_sim_time = LaunchConfiguration('use_sim_time', default=True)
+
+    # Gazebo launch file
 
     gazebo_launch = PathJoinSubstitution([
-        ros_gz_sim_path,
+        FindPackageShare('ros_gz_sim'),
         'launch',
         'gz_sim.launch.py'
     ])
 
+    gz_spawn_entity = Node(
+        package='ros_gz_sim',
+        executable='create',
+        output='screen',
+        arguments=[
+                '-name', 'ackermann_vehicle',
+                '-topic', 'robot_description',
+                '-allow_renaming', 'true',
+                '-z', '0.5'])
+
+    # Robot
     robot_description = ParameterValue(
         Command(['xacro ', PathJoinSubstitution([
                         FindPackageShare('vehicle_gazebo'),
@@ -28,25 +44,77 @@ def generate_launch_description():
         value_type=str
     )
 
+    # Controllers
+    robot_controllers = PathJoinSubstitution(
+        [
+            FindPackageShare('vehicle_gazebo'),
+            'config',
+            'ackermann_drive_controller.yaml',
+        ]
+    )
+
+    joint_state_broadcaster_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['joint_state_broadcaster'],
+    )
+    ackermann_steering_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['ackermann_steering_controller',
+                   '--param-file',
+                   robot_controllers,
+                   '--controller-ros-args',
+                   '-r /ackermann_steering_controller/tf_odometry:=/tf',
+                   '--controller-ros-args',
+                   '-r /ackermann_steering_controller/reference:=/cmd_vel'
+                   ],
+    )
+
 
     return LaunchDescription([
 
-        # Gazebo resource paths (URDF, meshes, worlds)
-        SetEnvironmentVariable(
-            'GZ_SIM_RESOURCE_PATH',
-            PathJoinSubstitution([
-                FindPackageShare('vehicle_gazebo')
-            ])
+        # Bridge the /clock topic
+        Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        output='screen'
         ),
 
         # Launch Gazebo
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(gazebo_launch),
-            launch_arguments={
-                'gz_args': '-r empty.sdf',
-                'on_exit_shutdown': 'true'
-            }.items(),
+            launch_arguments=[('gz_args', [' -r -v 1 empty.sdf'])]
+            ),
+
+        # Spawn controllers after robot is spawned
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=gz_spawn_entity,
+                on_exit=[joint_state_broadcaster_spawner],
+            )
         ),
+
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=joint_state_broadcaster_spawner,
+                on_exit=[ackermann_steering_controller_spawner],
+            )
+        ),
+
+        # Spawn the robot
+        gz_spawn_entity,
+        
+        # Launch Arguments
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value=use_sim_time,
+            description='If true, use simulated clock'),
+        DeclareLaunchArgument(
+            'description_format',
+            default_value='urdf',
+            description='Robot description format to use, urdf or sdf'),
 
         # Robot State Publisher
         Node(
@@ -55,18 +123,6 @@ def generate_launch_description():
             parameters= [{
                 'robot_description': robot_description
             }],
-            output='screen'
-        ),
-
-        # SPAWN DEL ROBOT EN GAZEBO
-        Node(
-            package='ros_gz_sim',
-            executable='create',
-            arguments=[
-                '-name', 'ackermann_vehicle',
-                '-topic', 'robot_description',
-                '-z', '0.5'
-            ],
             output='screen'
         ),
     ])

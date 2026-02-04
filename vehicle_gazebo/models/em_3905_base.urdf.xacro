@@ -100,6 +100,9 @@ material.
   <material name="tire_mat">
     <color rgba="0 0 0 1"/>
   </material>
+  <material name="imu_mat">
+    <color rgba="0 1 0 1"/>
+  </material>
 
   <!-- Null inertial element. This is needed to make the model work with
        Gazebo. -->
@@ -205,6 +208,7 @@ material.
       <axis xyz="0 0 -1"/>
       <limit lower="${-wheel_travel / 2}" upper="${wheel_travel / 2}"
              effort="${shock_eff_limit}" velocity="${shock_vel_limit}"/>
+      <!-- <dynamics damping="50.0"/> -->
     </joint>
     <transmission name="${lr_prefix}_${fr_prefix}_shock_trans">
       <type>transmission_interface/SimpleTransmission</type>
@@ -230,6 +234,7 @@ material.
       <origin rpy="${degrees_90} 0 0"/>
       <axis xyz="0 0 -1"/>
       <limit effort="${axle_eff_limit}" velocity="${axle_vel_limit}"/>
+      <!-- <dynamics damping="0.5"/> -->
     </joint>
     <transmission name="${lr_prefix}_${fr_prefix}_axle_trans">
       <type>transmission_interface/SimpleTransmission</type>
@@ -289,6 +294,7 @@ material.
       <axis xyz="0 0 1"/>
       <limit lower="${-degrees_45}" upper="${degrees_45}"
              effort="${servo_stall_torque}" velocity="${servo_no_load_speed}"/>
+      <!-- <dynamics damping="2.0"/> -->
     </joint>
     <transmission name="${lr_prefix}_steering_trans">
       <type>transmission_interface/SimpleTransmission</type>
@@ -313,8 +319,7 @@ material.
                  lr_reflect="${lr_reflect}"/>
   </xacro:macro>
 
-  <!-- base_link must have geometry so that its axes can be displayed in
-       rviz. -->
+  <!-- base_link-->
   <link name="base_link">
     <visual>
       <geometry>
@@ -355,6 +360,7 @@ material.
   </gazebo>
 
   <joint name="base_link_to_chassis" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="chassis"/>
   </joint>
@@ -380,9 +386,7 @@ material.
       <geometry> 
         <box size="0.02 0.035 0.002"/> 
       </geometry> 
-      <material name="imu_mat">
-        <color rgba="0 1 0 1"/>
-      </material>
+      <material name="imu_mat"/>
     </visual> 
     <inertial> 
       <mass value="0.001"/> 
@@ -396,5 +400,49 @@ material.
     <parent link="base_link" />
     <child link="imu_link" />
   </joint>
+
+    <ros2_control name="GazeboSystem" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+      <!-- Rear wheels (driven) -->
+    <joint name="left_rear_axle">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="right_rear_axle">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+    <!-- Steering joints -->
+    <joint name="left_steering_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="right_steering_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+    </joint>
+    <!-- Front wheels (passive, only state) -->
+    <joint name="left_front_axle">
+      <state_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="right_front_axle">
+      <state_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+  </ros2_control>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find vehicle_gazebo)/config/ackermann_drive_controller.yaml</parameters>
+    </plugin>
+  </gazebo>
 
 </robot>
