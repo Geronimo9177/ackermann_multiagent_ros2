@@ -469,6 +469,18 @@ material.
     </sensor>
   </gazebo>
 
+  <!-- Groud Truth Pose -->
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" 
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_topic>ground_truth_odom</odom_topic>
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+
+
   <ros2_control name="GazeboSystem" type="system">
     <hardware>
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>

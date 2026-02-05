@@ -90,12 +90,14 @@ def generate_launch_description():
 
     return LaunchDescription([
 
-        # Bridge the /clock topic
+        # Bridge 
         Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-                   "imu@sensor_msgs/msg/Imu@gz.msgs.IMU"],
+                   "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", #IMU data
+                   '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', #Ground truth odometry
+     ],
         output='screen'
         ),
 
