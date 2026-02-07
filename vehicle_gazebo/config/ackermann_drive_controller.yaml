@@ -9,8 +9,8 @@ ackermann_steering_controller:
   ros__parameters:
     type: 'ackermann_steering_controller/AckermannSteeringController'
     wheelbase: 0.335
-    traction_track_width: 0.365
-    steering_track_width: 0.365
+    traction_track_width: 0.305
+    steering_track_width: 0.305
     traction_wheels_radius: 0.073025
     steering_wheels_radius: 0.073025
     reference_timeout: 2.0 # In s. Timeout to stop if no cmd_vel is received
@@ -21,6 +21,6 @@ ackermann_steering_controller:
     base_frame_id: base_link
     odom_frame_id: odom
     enable_odom_tf: true
-    twist_covariance_diagonal: [0.02, 0.02, 0.1, 0.1, 0.1, 0.02]
-    pose_covariance_diagonal:  [0.02, 0.02, 0.1, 0.1, 0.1, 0.02]
-    position_feedback: false
+    twist_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
+    pose_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
+    position_feedback: true

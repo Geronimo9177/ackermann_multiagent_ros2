@@ -198,7 +198,7 @@ material.
   <!-- Shock absorber -->
   <xacro:macro name="shock"
                params="lr_prefix fr_prefix lr_reflect fr_reflect child">
-    <joint name="${lr_prefix}_${fr_prefix}_shock" type="prismatic">
+    <joint name="${lr_prefix}_${fr_prefix}_shock" type="fixed">
       <parent link="chassis"/>
       <child link="${child}"/>
 
@@ -208,16 +208,8 @@ material.
       <axis xyz="0 0 -1"/>
       <limit lower="${-wheel_travel / 2}" upper="${wheel_travel / 2}"
              effort="${shock_eff_limit}" velocity="${shock_vel_limit}"/>
-      <!-- <dynamics damping="50.0"/> -->
+      <!--  <dynamics damping="25.0" friction="2.0"/> -->
     </joint>
-    <transmission name="${lr_prefix}_${fr_prefix}_shock_trans">
-      <type>transmission_interface/SimpleTransmission</type>
-      <joint name="${lr_prefix}_${fr_prefix}_shock">
-      </joint>
-      <actuator name="${lr_prefix}_${fr_prefix}_shock_act">
-        <mechanicalReduction>1</mechanicalReduction>
-      </actuator>
-    </transmission>
   </xacro:macro>
 
   <!-- The "wheel" macro defines an axle carrier, axle, and wheel. -->
@@ -236,14 +228,6 @@ material.
       <limit effort="${axle_eff_limit}" velocity="${axle_vel_limit}"/>
       <!-- <dynamics damping="0.5"/> -->
     </joint>
-    <transmission name="${lr_prefix}_${fr_prefix}_axle_trans">
-      <type>transmission_interface/SimpleTransmission</type>
-      <joint name="${lr_prefix}_${fr_prefix}_axle">
-      </joint>
-      <actuator name="${lr_prefix}_${fr_prefix}_axle_act">
-        <mechanicalReduction>1</mechanicalReduction>
-      </actuator>
-    </transmission>
 
     <link name="${lr_prefix}_${fr_prefix}_wheel">
       <visual>
@@ -274,6 +258,8 @@ material.
 
     <gazebo reference="${lr_prefix}_${fr_prefix}_wheel">
       <material>Gazebo/Black</material>
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
     </gazebo>
   </xacro:macro>
 
@@ -294,16 +280,8 @@ material.
       <axis xyz="0 0 1"/>
       <limit lower="${-degrees_45}" upper="${degrees_45}"
              effort="${servo_stall_torque}" velocity="${servo_no_load_speed}"/>
-      <!-- <dynamics damping="2.0"/> -->
+      <!-- <dynamics damping="0.2"/> -->
     </joint>
-    <transmission name="${lr_prefix}_steering_trans">
-      <type>transmission_interface/SimpleTransmission</type>
-      <joint name="${lr_prefix}_steering_joint">
-      </joint>
-      <actuator name="${lr_prefix}_steering_act">
-        <mechanicalReduction>1</mechanicalReduction>
-      </actuator>
-    </transmission>
 
     <xacro:wheel lr_prefix="${lr_prefix}" fr_prefix="${fr_prefix}"
                  lr_reflect="${lr_reflect}"/>

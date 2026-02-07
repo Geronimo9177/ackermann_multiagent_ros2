@@ -1,6 +1,6 @@
 ekf_filter_node:
     ros__parameters:
-        frequency: 50.0
+        frequency: 200.0
         two_d_mode: true
         publish_tf: true
  
@@ -15,9 +15,9 @@ ekf_filter_node:
         #vroll , vpitch, vyaw,
         #ax    , ay    , az
         odom0: /ackermann_steering_controller/odometry
-        odom0_config: [false, false, false,
-                       false, false, false,
-                       true, true, false,
+        odom0_config: [true, true, false,
+                       false, false, true,
+                       true, false, false,
                        false, false, true,
                        false, false, false]
 
