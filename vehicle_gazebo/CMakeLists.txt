@@ -7,9 +7,33 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(control_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+
+add_executable(ackermann_low_level_controller
+  src/ackermann_low_level_controller.cpp
+)
+
+ament_target_dependencies(ackermann_low_level_controller
+  rclcpp
+  control_msgs
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  tf2
+  tf2_ros
+)
+
+install(TARGETS ackermann_low_level_controller
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 install(
   DIRECTORY config launch worlds models
