@@ -1,0 +1,14 @@
+ackermann_low_level_controller:
+  ros__parameters:
+    wheelbase: 0.335
+    steering_track_width: 0.305
+    traction_track_width: 0.305
+    wheel_radius: 0.073025
+    use_joint_state_odom: true
+    left_steer_joint: left_steering_joint
+    right_steer_joint: right_steering_joint
+    left_rear_joint: left_rear_axle
+    right_rear_joint: right_rear_axle
+    publish_tf: false
+    odom_frame_id: odom
+    base_frame_id: base_link

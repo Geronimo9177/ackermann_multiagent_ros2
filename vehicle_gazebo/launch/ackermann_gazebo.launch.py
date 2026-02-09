@@ -64,17 +64,20 @@ def generate_launch_description():
         executable='spawner',
         arguments=['joint_state_broadcaster'],
     )
-    ackermann_steering_controller_spawner = Node(
+    steering_position_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['ackermann_steering_controller',
+        arguments=['steering_position_controller',
                    '--param-file',
-                   robot_controllers,
-                   '--controller-ros-args',
-                   '-r /ackermann_steering_controller/tf_odometry:=/tf',
-                   '--controller-ros-args',
-                   '-r /ackermann_steering_controller/reference:=/cmd_vel'
-                   ],
+                   robot_controllers],
+    )
+
+    rear_wheel_pid_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['rear_wheel_pid',
+                   '--param-file',
+                   robot_controllers],
     )
 
     #Extended Kalman Filter
@@ -116,7 +119,10 @@ def generate_launch_description():
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=joint_state_broadcaster_spawner,
-                on_exit=[ackermann_steering_controller_spawner],
+                on_exit=[
+                    steering_position_controller_spawner,
+                    rear_wheel_pid_spawner,
+                ],
             )
         ),
 
@@ -144,11 +150,17 @@ def generate_launch_description():
         ),
 
         Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
+            package='vehicle_low_level_controllers',
+            executable='ackermann_low_level_controller',
+            name='ackermann_low_level_controller',
             output='screen',
-            parameters=[ekf_config, {'use_sim_time': use_sim_time}],
-            remappings=[('odometry/filtered', 'odometry/filtered')]
+            parameters=[
+                PathJoinSubstitution([
+                    FindPackageShare('vehicle_low_level_controllers'),
+                    'config',
+                    'ackermann_low_level.yaml'
+                ]),
+                {'use_sim_time': use_sim_time}
+            ]
         )
     ])

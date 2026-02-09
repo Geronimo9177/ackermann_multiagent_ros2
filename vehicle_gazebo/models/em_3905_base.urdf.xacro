@@ -479,11 +479,13 @@ material.
     <joint name="left_steering_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
+      <state_interface name="velocity"/>
     </joint>
 
     <joint name="right_steering_joint">
       <command_interface name="position"/>
       <state_interface name="position"/>
+      <state_interface name="velocity"/>
     </joint>
     <!-- Front wheels (passive, only state) -->
     <joint name="left_front_axle">
