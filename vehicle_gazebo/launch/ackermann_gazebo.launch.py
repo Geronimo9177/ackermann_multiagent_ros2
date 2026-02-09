@@ -150,13 +150,13 @@ def generate_launch_description():
         ),
 
         Node(
-            package='vehicle_low_level_controllers',
+            package='vehicle_gazebo',
             executable='ackermann_low_level_controller',
             name='ackermann_low_level_controller',
             output='screen',
             parameters=[
                 PathJoinSubstitution([
-                    FindPackageShare('vehicle_low_level_controllers'),
+                    FindPackageShare('vehicle_gazebo'),
                     'config',
                     'ackermann_low_level.yaml'
                 ]),
