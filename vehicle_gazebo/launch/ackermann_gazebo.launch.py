@@ -64,10 +64,10 @@ def generate_launch_description():
         executable='spawner',
         arguments=['joint_state_broadcaster'],
     )
-    steering_position_controller_spawner = Node(
+    steering_pid_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['steering_position_controller',
+        arguments=['steering_pid',
                    '--param-file',
                    robot_controllers],
     )
@@ -120,7 +120,7 @@ def generate_launch_description():
             event_handler=OnProcessExit(
                 target_action=joint_state_broadcaster_spawner,
                 on_exit=[
-                    steering_position_controller_spawner,
+                    steering_pid_spawner,
                     rear_wheel_pid_spawner,
                 ],
             )

@@ -10,7 +10,6 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
 #include "control_msgs/msg/multi_dof_command.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_ros/transform_broadcaster.h"
@@ -44,8 +43,8 @@ public:
       rclcpp::QoS(50),
       std::bind(&AckermannLowLevelController::jointStateCallback, this, std::placeholders::_1));
 
-    steering_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
-      "steering_position_controller/commands",
+    steering_pub_ = this->create_publisher<control_msgs::msg::MultiDOFCommand>(
+      "steering_pid/reference",
       rclcpp::QoS(10));
 
     rear_wheel_pub_ = this->create_publisher<control_msgs::msg::MultiDOFCommand>(
@@ -184,8 +183,9 @@ private:
     double left_wheel_vel,
     double right_wheel_vel)
   {
-    std_msgs::msg::Float64MultiArray steering_msg;
-    steering_msg.data = {left_steer, right_steer};
+    control_msgs::msg::MultiDOFCommand steering_msg;
+    steering_msg.dof_names = {left_steer_joint_, right_steer_joint_};
+    steering_msg.values = {left_steer, right_steer};
     steering_pub_->publish(steering_msg);
 
     control_msgs::msg::MultiDOFCommand ref_msg;
@@ -228,7 +228,7 @@ private:
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr steering_pub_;
+  rclcpp::Publisher<control_msgs::msg::MultiDOFCommand>::SharedPtr steering_pub_;
   rclcpp::Publisher<control_msgs::msg::MultiDOFCommand>::SharedPtr rear_wheel_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;

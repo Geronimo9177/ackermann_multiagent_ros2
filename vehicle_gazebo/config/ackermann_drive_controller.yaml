@@ -5,16 +5,20 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    steering_position_controller:
-      type: forward_command_controller/ForwardCommandController
+    steering_pid:
+      type: pid_controller/PidController
 
     rear_wheel_pid:
       type: pid_controller/PidController
 
-steering_position_controller:
+steering_pid:
   ros__parameters:
-    joints: [left_steering_joint, right_steering_joint]
-    interface_name: position
+    dof_names: [left_steering_joint, right_steering_joint]
+    command_interface: position
+    reference_and_state_interfaces: ["position", "velocity"]
+    gains:
+      left_steering_joint: {p: 0.9, i: 10.0, d: 0.0}
+      right_steering_joint: {p: 0.9, i: 10.0, d: 0.0}
 
 rear_wheel_pid:
   ros__parameters:
@@ -22,5 +26,5 @@ rear_wheel_pid:
     command_interface: velocity
     reference_and_state_interfaces: ["velocity"]
     gains:
-      left_rear_axle: {p: 0.9, i: 10.0, d: 0.0, feedforward_gain: 1.0}
-      right_rear_axle: {p: 0.9, i: 10.0, d: 0.0, feedforward_gain: 1.0}
+      left_rear_axle: {p: 0.9, i: 10.0, d: 0.0}
+      right_rear_axle: {p: 0.9, i: 10.0, d: 0.0}

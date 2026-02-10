@@ -88,7 +88,7 @@ material.
   <!-- These constants are used to simulate a Traxxas 2056 servo operated at
        6 V. servo_stall_torque is measured in N m. servo_no_load_speed is
        measured in rad/s. -->
-  <xacro:property name="servo_stall_torque" value="0.5649"/>
+  <xacro:property name="servo_stall_torque" value="3.4"/>
   <xacro:property name="servo_no_load_speed" value="4.553"/>
 
   <material name="battery_mat">
@@ -280,7 +280,7 @@ material.
       <axis xyz="0 0 1"/>
       <limit lower="${-degrees_45}" upper="${degrees_45}"
              effort="${servo_stall_torque}" velocity="${servo_no_load_speed}"/>
-      <!-- <dynamics damping="0.2"/> -->
+      <!-- <dynamics damping="0.5" friction="0.01"/> -->
     </joint>
 
     <xacro:wheel lr_prefix="${lr_prefix}" fr_prefix="${fr_prefix}"
