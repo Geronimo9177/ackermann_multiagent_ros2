@@ -162,5 +162,16 @@ def generate_launch_description():
                 ]),
                 {'use_sim_time': use_sim_time}
             ]
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[
+                ekf_config,
+                {'use_sim_time': use_sim_time}
+            ]
         )
     ])

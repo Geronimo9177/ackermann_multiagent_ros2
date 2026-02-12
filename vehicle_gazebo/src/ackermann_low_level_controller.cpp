@@ -1,8 +1,10 @@
 #include <cmath>
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
+#include <array>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
@@ -32,6 +34,12 @@ public:
     publish_tf_ = this->declare_parameter("publish_tf", true);
     odom_frame_id_ = this->declare_parameter("odom_frame_id", std::string("odom"));
     base_frame_id_ = this->declare_parameter("base_frame_id", std::string("base_link"));
+    pose_covariance_ = loadCovarianceDiagonal(
+      "pose_covariance_diagonal",
+      {0.0025, 0.0025, 1e6, 1e6, 1e6, 0.0305});
+    twist_covariance_ = loadCovarianceDiagonal(
+      "twist_covariance_diagonal",
+      {0.01, 1e6, 1e6, 1e6, 1e6, 0.09});
 
     cmd_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel",
@@ -113,16 +121,39 @@ private:
     double v_odom = v;
     double w_odom = w;
     if (use_joint_state_odom_ && have_joint_states_) {
-      const double v_left = left_rear_vel_ * wheel_radius_;
-      const double v_right = right_rear_vel_ * wheel_radius_;
-      v_odom = 0.5 * (v_left + v_right);
-
-      const double steer_avg = 0.5 * (left_steer_pos_ + right_steer_pos_);
-      if (std::fabs(steer_avg) > 1e-6) {
-        w_odom = v_odom * std::tan(steer_avg) / wheelbase_;
+      // Velocidades lineales de las ruedas traseras
+      const double vel_right = right_rear_vel_ * wheel_radius_;
+      const double vel_left = left_rear_vel_ * wheel_radius_;
+      
+      // Cálculo robusto de φ usando cinemática de Ackermann
+      // overdetermined, tomamos el promedio
+      const double right_steer_est = std::atan(
+        wheelbase_ * std::tan(right_steer_pos_) /
+        (wheelbase_ - steering_track_width_ * 0.5 * std::tan(right_steer_pos_))
+      );
+      const double left_steer_est = std::atan(
+        wheelbase_ * std::tan(left_steer_pos_) /
+        (wheelbase_ + steering_track_width_ * 0.5 * std::tan(left_steer_pos_))
+      );
+      const double steer_pos = (right_steer_est + left_steer_est) * 0.5;
+      
+      // Cálculo de velocidad lineal con doble tracción
+      const double turning_radius = wheelbase_ / std::tan(steer_pos);
+      
+      if (std::isinf(turning_radius)) {
+        // Movimiento recto
+        v_odom = (vel_right + vel_left) * 0.5;
       } else {
-        w_odom = 0.0;
+        // Movimiento curvo: overdetermined, tomamos el promedio
+        const double vel_r = vel_right * turning_radius / 
+          (turning_radius + traction_track_width_ * 0.5);
+        const double vel_l = vel_left * turning_radius / 
+          (turning_radius - traction_track_width_ * 0.5);
+        v_odom = (vel_r + vel_l) * 0.5;
       }
+      
+      // Velocidad angular
+      w_odom = std::tan(steer_pos) * v_odom / wheelbase_;
     }
 
     publishOdometry(v_odom, w_odom, now);
@@ -135,10 +166,25 @@ private:
       return;
     }
 
-    x_ += v * std::cos(yaw_) * dt;
-    y_ += v * std::sin(yaw_) * dt;
-    yaw_ += w * dt;
+    // Integración de cinemática directa
+    const double delta_x = v * dt;
+    const double delta_theta = w * dt;
+    const double eps = 1e-9;
 
+    if (std::fabs(delta_theta) < eps) {
+      // Runge-Kutta 2º orden cuando omega es cero
+      const double theta_mid = yaw_ + w * 0.5 * dt;
+      x_ += v * std::cos(theta_mid) * dt;
+      y_ += v * std::sin(theta_mid) * dt;
+    } else {
+      // Integración exacta para movimiento circular
+      const double heading_old = yaw_;
+      const double R = delta_x / delta_theta;
+      yaw_ += delta_theta;
+      x_ += R * (std::sin(yaw_) - std::sin(heading_old));
+      y_ += -R * (std::cos(yaw_) - std::cos(heading_old));
+    }
+    
     tf2::Quaternion q;
     q.setRPY(0.0, 0.0, yaw_);
 
@@ -153,9 +199,11 @@ private:
     odom.pose.pose.orientation.y = q.y();
     odom.pose.pose.orientation.z = q.z();
     odom.pose.pose.orientation.w = q.w();
+    odom.pose.covariance = pose_covariance_;
 
     odom.twist.twist.linear.x = v;
     odom.twist.twist.angular.z = w;
+    odom.twist.covariance = twist_covariance_;
 
     odom_pub_->publish(odom);
 
@@ -192,6 +240,39 @@ private:
     ref_msg.dof_names = {left_rear_joint_, right_rear_joint_};
     ref_msg.values = {left_wheel_vel, right_wheel_vel};
     rear_wheel_pub_->publish(ref_msg);
+  }
+
+  static std::array<double, 36> makeCovariance(
+    double xx, double yy, double zz, double rr, double pp, double yyaw)
+  {
+    std::array<double, 36> cov{};
+    cov[0] = xx;
+    cov[7] = yy;
+    cov[14] = zz;
+    cov[21] = rr;
+    cov[28] = pp;
+    cov[35] = yyaw;
+    return cov;
+  }
+
+  std::array<double, 36> loadCovarianceDiagonal(
+    const std::string & name,
+    const std::array<double, 6> & defaults)
+  {
+    std::vector<double> default_vec(defaults.begin(), defaults.end());
+    auto values = this->declare_parameter<std::vector<double>>(name, default_vec);
+    if (values.size() != defaults.size()) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Parameter '%s' must have %zu elements, using defaults.",
+        name.c_str(),
+        defaults.size());
+      return makeCovariance(
+        defaults[0], defaults[1], defaults[2], defaults[3], defaults[4], defaults[5]);
+    }
+
+    return makeCovariance(
+      values[0], values[1], values[2], values[3], values[4], values[5]);
   }
 
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
@@ -246,6 +327,8 @@ private:
   bool publish_tf_{true};
   std::string odom_frame_id_{"odom"};
   std::string base_frame_id_{"base_link"};
+  std::array<double, 36> pose_covariance_{};
+  std::array<double, 36> twist_covariance_{};
 
   rclcpp::Time last_odom_time_;
 

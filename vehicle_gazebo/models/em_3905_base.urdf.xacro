@@ -47,8 +47,8 @@ material.
        axle_length. -->
   <xacro:property name="hub_dia" value="0.09652"/>
   <xacro:property name="tire_dia" value="0.14605"/>
-  <xacro:property name="tire_width" value="0.0889"/>
-  <xacro:property name="hex_hub_depth" value="0.01445"/>
+  <xacro:property name="tire_width" value="0.01"/>
+  <xacro:property name="hex_hub_depth" value="${tire_width / 2 - axle_length}"/>
   <xacro:property name="wheel_mass" value="0.29"/>
 
   <!-- hex_hub_dist is the distance between left and right hex hubs when
@@ -249,6 +249,14 @@ material.
         <geometry>
           <cylinder radius="${tire_dia / 2}" length="${tire_width}"/>
         </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>50.0</mu>
+              <mu2>50.0</mu2>
+            </ode>
+          </friction>
+        </surface>
       </collision>
 
       <xacro:thick_walled_tube_inertial
@@ -260,6 +268,14 @@ material.
       <material>Gazebo/Black</material>
       <mu1>1.0</mu1>
       <mu2>1.0</mu2>
+      <surface>
+        <friction>
+          <ode>
+            <mu>50.0</mu>
+            <mu2>50.0</mu2>
+          </ode>
+        </friction>
+      </surface>
     </gazebo>
   </xacro:macro>
 
@@ -338,7 +354,7 @@ material.
   </gazebo>
 
   <joint name="base_link_to_chassis" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="${wheelbase / 2} 0 0" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="chassis"/>
   </joint>
@@ -360,7 +376,7 @@ material.
 
   <!-- IMU frame -->
   <joint name="imu_joint" type="fixed">
-    <origin xyz="0 0 0.02" rpy="0 0 0"/>
+    <origin xyz="${wheelbase / 2} 0 0.02" rpy="0 0 0"/>
     <parent link="base_link" />
     <child link="imu_link" />
   </joint>
