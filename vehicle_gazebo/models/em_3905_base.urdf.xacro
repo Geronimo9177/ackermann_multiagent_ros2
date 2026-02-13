@@ -47,8 +47,8 @@ material.
        axle_length. -->
   <xacro:property name="hub_dia" value="0.09652"/>
   <xacro:property name="tire_dia" value="0.14605"/>
-  <xacro:property name="tire_width" value="0.0889"/>
-  <xacro:property name="hex_hub_depth" value="0.01445"/>
+  <xacro:property name="tire_width" value="0.01"/>
+  <xacro:property name="hex_hub_depth" value="${tire_width / 2 - axle_length}"/>
   <xacro:property name="wheel_mass" value="0.29"/>
 
   <!-- hex_hub_dist is the distance between left and right hex hubs when
@@ -88,7 +88,7 @@ material.
   <!-- These constants are used to simulate a Traxxas 2056 servo operated at
        6 V. servo_stall_torque is measured in N m. servo_no_load_speed is
        measured in rad/s. -->
-  <xacro:property name="servo_stall_torque" value="0.5649"/>
+  <xacro:property name="servo_stall_torque" value="3.4"/>
   <xacro:property name="servo_no_load_speed" value="4.553"/>
 
   <material name="battery_mat">
@@ -280,7 +280,7 @@ material.
       <axis xyz="0 0 1"/>
       <limit lower="${-degrees_45}" upper="${degrees_45}"
              effort="${servo_stall_torque}" velocity="${servo_no_load_speed}"/>
-      <!-- <dynamics damping="0.2"/> -->
+      <!-- <dynamics damping="0.5" friction="0.01"/> -->
     </joint>
 
     <xacro:wheel lr_prefix="${lr_prefix}" fr_prefix="${fr_prefix}"
@@ -338,7 +338,7 @@ material.
   </gazebo>
 
   <joint name="base_link_to_chassis" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="${wheelbase / 2} 0 0" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="chassis"/>
   </joint>
@@ -360,7 +360,7 @@ material.
 
   <!-- IMU frame -->
   <joint name="imu_joint" type="fixed">
-    <origin xyz="0 0 0.02" rpy="0 0 0"/>
+    <origin xyz="${wheelbase / 2} 0 0.02" rpy="0 0 0"/>
     <parent link="base_link" />
     <child link="imu_link" />
   </joint>
