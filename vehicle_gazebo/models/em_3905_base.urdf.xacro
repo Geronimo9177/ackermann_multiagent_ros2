@@ -47,7 +47,7 @@ material.
        axle_length. -->
   <xacro:property name="hub_dia" value="0.09652"/>
   <xacro:property name="tire_dia" value="0.14605"/>
-  <xacro:property name="tire_width" value="0.01"/>
+  <xacro:property name="tire_width" value="0.05"/>
   <xacro:property name="hex_hub_depth" value="${tire_width / 2 - axle_length}"/>
   <xacro:property name="wheel_mass" value="0.29"/>
 
@@ -444,6 +444,45 @@ material.
             </linear_acceleration>
         </imu>
       
+    </sensor>
+  </gazebo>
+
+  <!-- Magnetometer sensor -->
+  <gazebo reference="imu_link">
+    <sensor name="magnetometer" type="magnetometer">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <visualize>false</visualize>
+      <topic>magnetometer</topic>
+      <enable_metrics>true</enable_metrics>
+      <gz_frame_id>imu_link</gz_frame_id>
+      
+      <magnetometer>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.000000080</stddev>
+            <bias_mean>0.0</bias_mean>
+            <bias_stddev>0.000000400</bias_stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.000000080</stddev>
+            <bias_mean>0.0</bias_mean>
+            <bias_stddev>0.000000400</bias_stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.000000080</stddev>
+            <bias_mean>0.0</bias_mean>
+            <bias_stddev>0.000000400</bias_stddev>
+          </noise>
+        </z>
+      </magnetometer>
     </sensor>
   </gazebo>
 

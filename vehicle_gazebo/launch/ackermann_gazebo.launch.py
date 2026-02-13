@@ -86,6 +86,15 @@ def generate_launch_description():
         ]
     )
 
+    # Ruta al archivo de configuración
+    madgwick_config = PathJoinSubstitution(
+        [
+            FindPackageShare('vehicle_gazebo'),
+            'config',
+            'madgwick_filter.yaml'
+        ]
+    )
+
     return LaunchDescription([
 
         # Bridge 
@@ -95,8 +104,25 @@ def generate_launch_description():
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
                    "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", #IMU data
                    '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', #Ground truth odometry
-     ],
+                   "magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer", #Magnetometer data
+        ],
+        remappings=[
+            ('/imu', '/imu/data_raw'),  # Renombrar para Madgwick
+        ],
         output='screen'
+        ),
+
+        Node(
+            package='imu_filter_madgwick',
+            executable='imu_filter_madgwick_node',
+            name='imu_filter_madgwick',
+            output='screen',
+            parameters=[madgwick_config],
+            remappings=[
+                ('imu/data_raw', '/imu/data_raw'),
+                ('imu/mag', '/magnetometer'),
+                ('imu/data', '/imu/data'),  # Salida fusionada
+            ]
         ),
 
         # Launch Gazebo

@@ -1,0 +1,38 @@
+imu_filter_madgwick:
+  ros__parameters:
+    # Frame IDs
+    fixed_frame: odom
+    use_mag: true  # CRÍTICO: usar magnetómetro
+    use_magnetic_field_msg: true  # Esperar MagneticField msg
+    
+    # Topics (los que vienen del bridge)
+    imu/data_raw: /imu  # Del sensor IMU (gyro + accel)
+    imu/mag: /magnetometer  # Del magnetómetro
+    
+    # Publicar en:
+    # /imu/data → IMU fusionado con orientación absoluta
+    
+    # Parámetros del filtro
+    gain: 0.1  # Ganancia Madgwick (0.1 es buen default)
+    zeta: 0.0  # Drift compensation (0 para indoor, >0 para outdoor)
+    
+    # Declinación magnética (Bogotá: ~-5.5 grados = -0.096 rad)
+    mag_bias:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    
+    # Orientación del magnetómetro (si está rotado respecto al IMU)
+    orientation_stddev: 0.0
+    
+    # Publicar TF
+    publish_tf: false  # El EKF ya publica TF
+    
+    # Remover gravedad
+    world_frame: enu  # East-North-Up
+    
+    # Frecuencia de publicación
+    constant_dt: 0.0  # 0 = usar timestamps de los mensajes
+    
+    # Debugging
+    publish_debug_topics: true  # Ver topics de debug
