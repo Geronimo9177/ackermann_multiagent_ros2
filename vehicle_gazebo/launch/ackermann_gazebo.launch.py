@@ -73,7 +73,9 @@ def generate_launch_description():
                    '--controller-ros-args',
                    '-r /ackermann_steering_controller/tf_odometry:=/tf',
                    '--controller-ros-args',
-                   '-r /ackermann_steering_controller/reference:=/cmd_vel'
+                   '-r /ackermann_steering_controller/reference:=/cmd_vel',
+                   '--controller-ros-args',
+                   '-r /ackermann_steering_controller/odometry:=/ackermann_steering_controller/odometry_raw'
                    ],
     )
 
@@ -176,5 +178,12 @@ def generate_launch_description():
             output='screen',
             parameters=[ekf_config, {'use_sim_time': use_sim_time}],
             remappings=[('odometry/filtered', 'odometry/filtered')]
+        ),
+
+        Node(
+            package='vehicle_gazebo',
+            executable='odom_covariance_republisher.py',
+            name='odom_covariance_republisher',
+            output='screen'
         )
     ])
