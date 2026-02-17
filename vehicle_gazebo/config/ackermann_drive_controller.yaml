@@ -13,7 +13,7 @@ ackermann_steering_controller:
     steering_track_width: 0.305
     traction_wheels_radius: 0.073025
     steering_wheels_radius: 0.073025
-    reference_timeout: 2.0 # In s. Timeout to stop if no cmd_vel is received
+    reference_timeout: 20.0 # In s. Timeout to stop if no cmd_vel is received
     traction_joints_names: ['right_rear_axle', 'left_rear_axle']
     steering_joints_names: ['right_steering_joint', 'left_steering_joint']
     open_loop: false
