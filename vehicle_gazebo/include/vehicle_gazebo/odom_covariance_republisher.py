@@ -14,7 +14,10 @@ class OdomCovarianceRepublisher(Node):
             "input_topic",
             "/ackermann_steering_controller/odometry_raw",
         )
-        self.declare_parameter("output_topic", "/ackermann_steering_controller/odometry")
+        self.declare_parameter(
+            "output_topic",
+            "/ackermann_steering_controller/odometry",
+        )
         self.declare_parameter(
             "pose_covariance_diagonal",
             [0.0, 7.0, 14.0, 21.0, 28.0, 35.0],
