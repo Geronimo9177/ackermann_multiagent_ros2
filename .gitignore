@@ -1,3 +1,4 @@
 .vscode/
 
 vehicle_gazebo/.vscode/
+vehicle_controller/vehicle_controller/__init__.py

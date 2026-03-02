@@ -43,7 +43,7 @@ class AckermannMPC(Node):
 
         self.create_subscription(
             Odometry,
-            '/odometry/filtered',
+            '/ground_truth_odom',
             self.odom_cb,
             10)
 

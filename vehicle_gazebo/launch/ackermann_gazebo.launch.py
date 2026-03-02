@@ -114,19 +114,6 @@ def generate_launch_description():
         output='screen'
         ),
 
-        Node(
-            package='imu_filter_madgwick',
-            executable='imu_filter_madgwick_node',
-            name='imu_filter_madgwick',
-            output='screen',
-            parameters=[madgwick_config],
-            remappings=[
-                ('imu/data_raw', '/imu/data_raw'),
-                ('imu/mag', '/magnetometer'),
-                ('imu/data', '/imu/data'),  # Salida fusionada
-            ]
-        ),
-
         # Launch Gazebo
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(gazebo_launch),
@@ -172,18 +159,30 @@ def generate_launch_description():
         ),
 
         Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
-            output='screen',
-            parameters=[ekf_config, {'use_sim_time': use_sim_time}],
-            remappings=[('odometry/filtered', 'odometry/filtered')]
-        ),
-
-        Node(
             package='vehicle_gazebo',
             executable='odom_covariance_republisher.py',
             name='odom_covariance_republisher',
             output='screen'
-        )
+        ),
+
+        Node(
+            package='imu_filter_madgwick',
+            executable='imu_filter_madgwick_node',
+            name='imu_filter_madgwick',
+            output='screen',
+            parameters=[madgwick_config],
+            remappings=[
+                ('imu/data_raw', '/imu/data_raw'),
+                ('imu/mag', '/magnetometer'),  # Usar magnetómetro corregido
+                ('imu/data', '/imu/data'),  # Salida fusionada
+            ]
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[ekf_config, {'use_sim_time': use_sim_time}]
+        ),
     ])
