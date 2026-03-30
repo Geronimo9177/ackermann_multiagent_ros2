@@ -2,3 +2,4 @@
 
 vehicle_gazebo/.vscode/
 vehicle_controller/vehicle_controller/__init__.py
+vehicle_controller/vehicle_controller/__pycache__

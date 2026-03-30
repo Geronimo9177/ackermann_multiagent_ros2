@@ -461,19 +461,19 @@ material.
           <x>
             <noise type="gaussian">
               <mean>0.000000080</mean>
-              <bias_mean>0.000000400</bias_mean>
+              <!-- <bias_mean>0.000000400</bias_mean> -->
             </noise>
           </x>
           <y>
             <noise type="gaussian">
               <mean>0.000000080</mean>
-              <bias_mean>0.000000400</bias_mean>
+              <!-- <bias_mean>0.000000400</bias_mean> -->
             </noise>
           </y>
           <z>
             <noise type="gaussian">
               <mean>0.000000080</mean>
-              <bias_mean>0.000000400</bias_mean>
+              <!-- <bias_mean>0.000000400</bias_mean> -->
             </noise>
           </z>
         </magnetometer>

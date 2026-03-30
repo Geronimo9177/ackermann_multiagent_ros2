@@ -166,6 +166,13 @@ def generate_launch_description():
         ),
 
         Node(
+            package='vehicle_gazebo',
+            executable='mag_republisher.py',
+            name='mag_republisher',
+            output='screen'
+        ),
+
+        Node(
             package='imu_filter_madgwick',
             executable='imu_filter_madgwick_node',
             name='imu_filter_madgwick',
@@ -173,7 +180,7 @@ def generate_launch_description():
             parameters=[madgwick_config],
             remappings=[
                 ('imu/data_raw', '/imu/data_raw'),
-                ('imu/mag', '/magnetometer'),  # Usar magnetómetro corregido
+                ('imu/mag', '/magnetometer/corrected'),  # Usar magnetómetro corregido
                 ('imu/data', '/imu/data'),  # Salida fusionada
             ]
         ),

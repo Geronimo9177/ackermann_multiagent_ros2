@@ -5,19 +5,19 @@ imu_filter_madgwick:
     world_frame: enu  # East-North-Up
 
     #Magnetómetro
-    use_mag: false 
+    use_mag: true 
     use_magnetic_field_msg: true  # Esperar MagneticField msg
     
     # Parámetros del filtro
-    gain: 0.1  # Ganancia Madgwick
-    zeta: 0.0  # Drift compensation
-    
+    gain: 0.01  # Ganancia Madgwick
+    zeta: 0.001  # Drift compensation
+
     # Declinación magnética 
     mag_bias_x: 0.0
     mag_bias_y: 0.0  
     mag_bias_z: 0.0
     
-    orientation_stddev: 0.1
+    orientation_stddev: 0.05
     
     # Publicar TF
     publish_tf: false  # El EKF ya publica TF
