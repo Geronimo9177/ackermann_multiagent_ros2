@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import PathJoinSubstitution
@@ -30,7 +30,7 @@ def generate_launch_description():
                 '-name', 'ackermann_vehicle',
                 '-topic', 'robot_description',
                 '-allow_renaming', 'true',
-                '-z', '0.5'])
+                '-z', '0.1'])
     
     gazebo_world = PathJoinSubstitution(
         [
@@ -89,12 +89,12 @@ def generate_launch_description():
     )
 
     # Ruta al archivo de configuración
-    madgwick_config = PathJoinSubstitution(
-        [
-            FindPackageShare('vehicle_gazebo'),
-            'config',
-            'madgwick_filter.yaml'
-        ]
+    complementary_config = PathJoinSubstitution(
+    [
+        FindPackageShare('vehicle_gazebo'),
+        'config',
+        'complementary_filter.yaml',
+    ]
     )
 
     return LaunchDescription([
@@ -166,30 +166,28 @@ def generate_launch_description():
         ),
 
         Node(
-            package='vehicle_gazebo',
-            executable='mag_republisher.py',
-            name='mag_republisher',
-            output='screen'
-        ),
-
-        Node(
-            package='imu_filter_madgwick',
-            executable='imu_filter_madgwick_node',
-            name='imu_filter_madgwick',
+            package='imu_complementary_filter',
+            executable='complementary_filter_node',
+            name='imu_complementary_filter',
             output='screen',
-            parameters=[madgwick_config],
+            parameters=[complementary_config],
             remappings=[
                 ('imu/data_raw', '/imu/data_raw'),
-                ('imu/mag', '/magnetometer/corrected'),  # Usar magnetómetro corregido
-                ('imu/data', '/imu/data'),  # Salida fusionada
+                ('imu/mag',      '/magnetometer'),
+                ('imu/data',     '/imu/data'),
             ]
         ),
 
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
-            output='screen',
-            parameters=[ekf_config, {'use_sim_time': use_sim_time}]
-        ),
+        TimerAction(
+            period=10.0,  # segundos
+            actions=[
+                Node(
+                    package='robot_localization',
+                    executable='ekf_node',
+                    name='ekf_filter_node',
+                    output='screen',
+                    parameters=[ekf_config, {'use_sim_time': use_sim_time}]
+                ),
+            ]
+        )
     ])

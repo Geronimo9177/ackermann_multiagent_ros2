@@ -16,7 +16,7 @@ ekf_filter_node:
         #ax    , ay    , az
         odom0: /ackermann_steering_controller/odometry
         odom0_config: [true, true, false,
-                       false, false, false,
+                       false, false, true,
                        true, false, false,
                        false, false, true,
                        false, false, false]
@@ -25,8 +25,8 @@ ekf_filter_node:
         imu0_config: [false, false, false,
                       false, false, true,
                       false, false, false,
-                      false, false, false,
-                      false, false, false]
+                      false, false, true,
+                      true, false, false]
         imu0_relative: true
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true
