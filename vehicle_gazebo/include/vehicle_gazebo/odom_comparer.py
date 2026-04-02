@@ -24,7 +24,7 @@ class OdometryComparer(Node):
 
         # --- Time synchronized subscribers ---
         self.gt_sub = Subscriber(self, Odometry, '/ground_truth_odom')
-        self.ctrl_sub = Subscriber(self, Odometry, '/odometry/filtered')
+        self.ctrl_sub = Subscriber(self, Odometry, '/odometry/global')
 
         self.sync = ApproximateTimeSynchronizer(
             [self.gt_sub, self.ctrl_sub],
@@ -97,7 +97,7 @@ class OdometryComparer(Node):
         self.ax1.setAspectLocked(True)
         self.ax1.addLegend()
         self.gt_traj = self.ax1.plot(pen='g', name='Ground Truth')
-        self.ctrl_traj = self.ax1.plot(pen='b', name='Controller')
+        self.ctrl_traj = self.ax1.plot(pen='b', name='EKF')
 
         self.axYawErr = self.win.addPlot(title='Yaw Error (deg)')
         self.yaw_err_curve = self.axYawErr.plot(pen='m')

@@ -79,22 +79,12 @@ def generate_launch_description():
                    ],
     )
 
-    #Extended Kalman Filter
-    ekf_config = PathJoinSubstitution(
+    sensor_fusion_config = PathJoinSubstitution(
         [
             FindPackageShare('vehicle_gazebo'),
             'config',
-            'ackermann_ekf.yaml',
+            'sensor_fusion.yaml',
         ]
-    )
-
-    # Ruta al archivo de configuración
-    complementary_config = PathJoinSubstitution(
-    [
-        FindPackageShare('vehicle_gazebo'),
-        'config',
-        'complementary_filter.yaml',
-    ]
     )
 
     return LaunchDescription([
@@ -107,6 +97,7 @@ def generate_launch_description():
                    "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", #IMU data
                    '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', #Ground truth odometry
                    "magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer", #Magnetometer data
+                   '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',  # GPS
         ],
         remappings=[
             ('/imu', '/imu/data_raw'),  # Renombrar para Madgwick
@@ -170,7 +161,7 @@ def generate_launch_description():
             executable='complementary_filter_node',
             name='imu_complementary_filter',
             output='screen',
-            parameters=[complementary_config],
+            parameters=[sensor_fusion_config],
             remappings=[
                 ('imu/data_raw', '/imu/data_raw'),
                 ('imu/mag',      '/magnetometer'),
@@ -179,14 +170,38 @@ def generate_launch_description():
         ),
 
         TimerAction(
-            period=10.0,  # segundos
+            period=8.0,  # segundos
             actions=[
+                # navsat_transform (GPS - Odometry)
+                Node(
+                    package='robot_localization',
+                    executable='navsat_transform_node',
+                    name='navsat_transform_node',
+                    parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
+                    remappings=[
+                        ('imu', '/imu/data'),
+                        ('gps/fix', '/gps/fix'),
+                        ('odometry/filtered', '/odometry/global'),
+                        ('odometry/gps', '/odometry/gps'),
+                    ]
+                ),
+
                 Node(
                     package='robot_localization',
                     executable='ekf_node',
-                    name='ekf_filter_node',
+                    name='ekf_filter_node_odom',
                     output='screen',
-                    parameters=[ekf_config, {'use_sim_time': use_sim_time}]
+                    parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
+                    remappings=[('odometry/filtered', '/odometry/local')]
+                ),
+                
+                Node(
+                    package='robot_localization',
+                    executable='ekf_node',
+                    name='ekf_filter_node_map',
+                    output='screen',
+                    parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
+                    remappings=[('odometry/filtered', '/odometry/global')]
                 ),
             ]
         )
