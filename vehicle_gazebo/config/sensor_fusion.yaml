@@ -32,7 +32,7 @@ imu_complementary_filter:
 # EKF Filter Local
 ekf_filter_node_odom:
     ros__parameters:
-        frequency: 50.0
+        frequency: 100.0
         sensor_timeout: 0.1
         two_d_mode: true
         publish_tf: true
@@ -71,7 +71,7 @@ ekf_filter_node_odom:
 # EKF Filter Global
 ekf_filter_node_map:
     ros__parameters:
-        frequency: 50.0
+        frequency: 100.0
         sensor_timeout: 0.1
         two_d_mode: true
         publish_tf: true

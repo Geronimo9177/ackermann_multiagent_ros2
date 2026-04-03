@@ -25,6 +25,9 @@ setup(
     entry_points={
     'console_scripts': [
         'ackermann_mpc = vehicle_controller.ackermann_mpc:main',
+        'topp = vehicle_controller.topp:main',
+        'trajectory_publisher = vehicle_controller.trayectory_publisher:main',
+        'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
     ],
 },
 

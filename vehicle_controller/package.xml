@@ -15,7 +15,9 @@
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>tf_transformations</depend>
+  <exec_depend>python3-matplotlib</exec_depend>
 
 
   <export>

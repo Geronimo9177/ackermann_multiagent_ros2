@@ -131,7 +131,7 @@ class TrajectoryPublisher(Node):
         poses = []
         
         t_vals = np.linspace(0, 2*np.pi, self.points)
-        scale = 3.0
+        scale = 4.0
         
         for t in t_vals:
             pose = PoseStamped()

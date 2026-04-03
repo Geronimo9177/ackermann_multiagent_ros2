@@ -5,144 +5,194 @@ from rclpy.node import Node
 
 import numpy as np
 import casadi as ca
+import time
 
 from nav_msgs.msg import Odometry, Path
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import TwistStamped, PoseStamped
+from std_msgs.msg import Float64MultiArray
 from tf_transformations import euler_from_quaternion
+
+
+# ==================================================
+# Proyección Ortogonal sobre un Segmento
+# ==================================================
+def get_projection(p, a, b):
+    v    = b - a
+    w    = p - a
+    v_sq = np.dot(v, v)
+    if v_sq == 0.0:
+        return np.linalg.norm(p - a), 0.0
+    t         = np.dot(w, v) / v_sq
+    t_clamped = np.clip(t, 0.0, 1.0)
+    dist      = np.linalg.norm(p - (a + t_clamped * v))
+    return dist, t_clamped
 
 
 class AckermannMPC(Node):
 
     def __init__(self):
-
         super().__init__('ackermann_mpc')
 
-        # Parámetros MPC
-        self.dt = 0.05
-        self.N = 20
-        self.L = 0.335
-
+        # ── Parámetros MPC ────────────────────────────────────────────────────
+        self.dt        = 0.05
+        self.N         = 20
+        self.L         = 0.335
         self.max_steer = 0.5
         self.max_speed = 1.0
-        self.max_accel = 1.5
 
-        self.state = np.zeros(3)
-        self.prev_u = np.zeros(2)
-        self.trajectory = None
-
+        # ── Estado interno ────────────────────────────────────────────────────
+        self.state         = np.zeros(3)
+        self.prev_u        = np.zeros(2)
         self.last_solution = None
-        
+
+        # Arrays del MultiArray (del nodo TOPP)
+        self.xy_arr  = None   # (N, 2)
+        self.yaw_arr = None   # (N,)
+        self.v_arr   = None   # (N,)
+        self.s_arr   = None   # (N,)
+
         self.odom_received = False
         self.path_received = False
-        
-        # Índice actual en la trayectoria
-        self.current_idx = None
-        
-        # Ventana de búsqueda hacia adelante
+
+        # Seguimiento del camino
+        self.current_idx   = None
+        self.current_t     = 0.0
         self.search_window = 10
+        self.s_search      = 3
 
-        self.create_subscription(
-            Odometry,
-            '/ground_truth_odom',
-            self.odom_cb,
-            10)
+        # ── Suscriptores ──────────────────────────────────────────────────────
+        self.create_subscription(Odometry, '/ground_truth_odom', self.odom_cb, 10)
+        self.create_subscription(Float64MultiArray, '/trajectory_topp',
+                                 self.trajectory_cb, 10)
 
-        self.create_subscription(
-            Path,
-            '/trajectory',
-            self.path_cb,
-            10)
+        # ── Publicador ────────────────────────────────────────────────────────
+        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
+        self.debug_pub = self.create_publisher(Float64MultiArray, '/mpc/debug', 10)
+        self.robot_path_pub = self.create_publisher(Path, '/mpc/robot_path', 10)
+        self.reference_path_pub = self.create_publisher(Path, '/mpc/reference_path', 10)
+        self.predicted_path_pub = self.create_publisher(Path, '/mpc/predicted_path', 10)
 
-        self.cmd_pub = self.create_publisher(
-            TwistStamped,
-            '/cmd_vel',
-            10)
+        self.robot_path_msg = Path()
+        self.robot_path_msg.header.frame_id = 'odom'
+        self.max_history_points = 4000
 
         self.get_logger().info('Setting up MPC solver...')
         self.setup_mpc()
         self.get_logger().info('MPC solver ready!')
 
         self.create_timer(self.dt, self.control_loop)
-        self.create_timer(2.0, self.debug_status)
+        self.create_timer(2.0,     self.debug_status)
 
+    # =========================================================================
     def debug_status(self):
         self.get_logger().info(
-            f'Odom: {self.odom_received} | '
-            f'Path: {self.path_received} | '
+            f'Odom: {self.odom_received} | Path: {self.path_received} | '
             f'Idx: {self.current_idx} | '
-            f'State: [{self.state[0]:.2f}, {self.state[1]:.2f}, {np.degrees(self.state[2]):.1f}°]'
+            f'State: [{self.state[0]:.2f}, {self.state[1]:.2f}, '
+            f'{np.degrees(self.state[2]):.1f}°]'
         )
 
+    # =========================================================================
+    # Setup MPC  —  costo en coordenadas de Frenet (s, l, φ, v)
+    # =========================================================================
     def setup_mpc(self):
-
         nx, nu = 3, 2
+        # ref por paso: [x_ref, y_ref, yaw_ref, v_ref]
+        # yaw_ref == ψ_ref (ángulo del segmento), se usa para la rotación a Frenet
+        n_ref  = 4
 
-        X = ca.MX.sym('X', nx, self.N+1)
+        X = ca.MX.sym('X', nx, self.N + 1)
         U = ca.MX.sym('U', nu, self.N)
-        P = ca.MX.sym('P', nx + 3*self.N)
+        P = ca.MX.sym('P', nx + n_ref * self.N)
 
-        Q  = np.diag([50,  50,  8])   # ✅ Más tracking
-        R  = np.diag([0.05, 0.3])     # ✅ Menos penalización de velocidad
-        Rd = np.diag([1.0,  2.0])     # ✅ Menos suavizado
+        # ── Pesos (ecuación 6 del paper AutoMPC) ─────────────────────────────
+        # q1: error longitudinal (s)  — bajo, path following no castiga atraso
+        # q2: error lateral      (l)  — alto, mantenerse sobre el path
+        # q3: error de yaw       (φ)  — medio
+        # q4: error de velocidad (v)  — medio
+        Q_lon = 5.0    # q1  peso longitudinal
+        Q_lat = 80.0   # q2  peso lateral  (>> Q_lon para path following puro)
+        Q_yaw = 8.0    # q3
+        Q_v   = 5.0    # q4
+
+        R  = np.diag([0.05, 0.3])   # uso de actuadores (v_cmd, δ)
+        Rd = np.diag([1.0,  2.0])   # suavizado de cambios
 
         cost = 0
         g    = []
 
         for k in range(self.N):
+            st  = X[:, k]           # [x, y, φ]
+            con = U[:, k]           # [v_cmd, δ]
+            ref = P[nx + n_ref * k : nx + n_ref * k + n_ref]
+            # ref[0]=x_ref, ref[1]=y_ref, ref[2]=ψ_ref, ref[3]=v_ref
 
-            st  = X[:, k]
-            con = U[:, k]
-            ref = P[nx + 3*k : nx + 3*k + 3]
+            # ── Rotación del error de posición al frame del segmento ──────────
+            # Equivalente a proyectar sobre la tangente (s) y normal (l)
+            dx = st[0] - ref[0]
+            dy = st[1] - ref[1]
+            psi = ref[2]   # yaw del segmento
 
-            err = st - ref
-            err_norm = ca.vertcat(
-                err[0],
-                err[1],
-                ca.atan2(ca.sin(err[2]), ca.cos(err[2]))
-            )
+            # Error longitudinal: proyección sobre la dirección del segmento
+            e_s =  ca.cos(psi) * dx + ca.sin(psi) * dy
 
-            cost += ca.mtimes([err_norm.T, Q, err_norm])
+            # Error lateral: proyección perpendicular al segmento
+            #   positivo = izquierda del segmento
+            e_l = -ca.sin(psi) * dx + ca.cos(psi) * dy
+
+            # Error de orientación normalizado
+            e_yaw = ca.atan2(ca.sin(st[2] - ref[2]), ca.cos(st[2] - ref[2]))
+
+            # Error de velocidad (input vs referencia TOPP)
+            e_v = con[0] - ref[3]
+
+            # ── Función de costo (eq. 6 AutoMPC) ─────────────────────────────
+            cost += Q_lon * e_s**2
+            cost += Q_lat * e_l**2
+            cost += Q_yaw * e_yaw**2
+            cost += Q_v   * e_v**2
             cost += ca.mtimes([con.T, R, con])
 
             if k > 0:
-                du = U[:, k] - U[:, k-1]
+                du    = U[:, k] - U[:, k - 1]
                 cost += ca.mtimes([du.T, Rd, du])
 
+            # ── Dinámica cinemática de bicicleta ──────────────────────────────
             x_next = ca.vertcat(
                 st[0] + con[0] * ca.cos(st[2]) * self.dt,
                 st[1] + con[0] * ca.sin(st[2]) * self.dt,
                 st[2] + (con[0] / self.L) * ca.tan(con[1]) * self.dt
             )
-            g.append(X[:, k+1] - x_next)
+            g.append(X[:, k + 1] - x_next)
 
+        # Condición inicial
         g.append(X[:, 0] - P[0:nx])
 
-        OPT = ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(U, -1, 1))
-
+        OPT  = ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(U, -1, 1))
         opts = {
-            'ipopt.print_level': 0,
-            'print_time': 0,
-            'ipopt.max_iter': 150,
-            'ipopt.acceptable_tol': 1e-4,
-            'ipopt.acceptable_obj_change_tol': 1e-4
+            'ipopt.print_level':               0,
+            'print_time':                      0,
+            'ipopt.max_iter':                150,
+            'ipopt.acceptable_tol':          1e-4,
+            'ipopt.acceptable_obj_change_tol': 1e-4,
         }
-
-        self.solver = ca.nlpsol(
-            'solver', 'ipopt',
-            dict(f=cost, x=OPT, g=ca.vertcat(*g), p=P),
-            opts
-        )
+        self.solver = ca.nlpsol('solver', 'ipopt',
+                                dict(f=cost, x=OPT, g=ca.vertcat(*g), p=P),
+                                opts)
 
         self.lbx, self.ubx = [], []
-
-        for _ in range(self.N+1):
+        for _ in range(self.N + 1):
             self.lbx += [-ca.inf] * 3
             self.ubx += [ ca.inf] * 3
-
         for _ in range(self.N):
             self.lbx += [-self.max_speed, -self.max_steer]
             self.ubx += [ self.max_speed,  self.max_steer]
 
+        self.n_ref = n_ref
+
+    # =========================================================================
+    # Callbacks
+    # =========================================================================
     def odom_cb(self, msg):
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
@@ -152,90 +202,177 @@ class AckermannMPC(Node):
             self.get_logger().info('First odometry received!')
             self.odom_received = True
 
-    def path_cb(self, msg):
-        self.trajectory  = msg.poses
-        self.current_idx = None   # Reset al recibir nueva trayectoria
+    def trajectory_cb(self, msg: Float64MultiArray):
+        """Deserializa Float64MultiArray → arrays numpy.
+        Layout: [x, y, yaw, v, s] por punto.
+        """
+        n      = msg.layout.dim[0].size
+        fields = msg.layout.dim[1].size
+
+        data = np.array(msg.data).reshape(n, fields)
+        self.xy_arr  = data[:, 0:2]
+        self.yaw_arr = data[:, 2]
+        self.v_arr   = data[:, 3]
+        self.s_arr   = data[:, 4]
+
+        self.current_idx = None
+        self.current_t   = 0.0
+
         if not self.path_received:
-            first = msg.poses[0].pose.position
             self.get_logger().info(
-                f'Trajectory received: {len(msg.poses)} pts | '
-                f'First: ({first.x:.2f}, {first.y:.2f})'
+                f'Trajectory TOPP: {n} pts | '
+                f'v [{self.v_arr.min():.2f}, {self.v_arr.max():.2f}] m/s'
             )
             self.path_received = True
 
-    def normalize_angle(self, angle):
-        while angle >  np.pi: angle -= 2*np.pi
-        while angle < -np.pi: angle += 2*np.pi
-        return angle
+        self.publish_reference_path()
 
-    # ==================================================
-    # Búsqueda inicial: recorre TODA la trayectoria
-    # ==================================================
-    def find_closest_point_index(self):
-        best_idx  = 0
-        best_cost = float('inf')
+    # =========================================================================
+    # Helpers de geometría
+    # =========================================================================
+    def get_segment(self, i, n):
+        idx_a = min(i, n - 2)
+        return self.xy_arr[idx_a], self.xy_arr[idx_a + 1]
 
-        for i, pose in enumerate(self.trajectory):
-            pos  = pose.pose.position
-            dist = np.hypot(pos.x - self.state[0],
-                            pos.y - self.state[1])
+    def _interp(self, arr, idx, t):
+        idx_a = min(idx, len(arr) - 2)
+        return float((1.0 - t) * arr[idx_a] + t * arr[idx_a + 1])
 
-            angle_to = np.arctan2(pos.y - self.state[1],
-                                  pos.x - self.state[0])
-            head_err = abs(self.normalize_angle(angle_to - self.state[2]))
+    def get_v_ref_at(self, idx, t):
+        return self._interp(self.v_arr, idx, t)
 
-            cost = dist + (5.0 * head_err if head_err < np.pi/2 else 20.0 * head_err)
+    def get_yaw_ref_at(self, idx, t):
+        """Interpolación circular del yaw de referencia."""
+        idx_a = min(idx, len(self.yaw_arr) - 2)
+        a0, a1 = self.yaw_arr[idx_a], self.yaw_arr[idx_a + 1]
+        return float(a0 + t * np.arctan2(np.sin(a1 - a0), np.cos(a1 - a0)))
 
-            if cost < best_cost:
-                best_cost = cost
-                best_idx  = i
-
-        self.get_logger().info(f'Closest point found: idx={best_idx}')
-        return best_idx
-
-    # ==================================================
-    # Actualización: busca SOLO HACIA ADELANTE
-    # ==================================================
+    # =========================================================================
+    # Actualización del índice (look-ahead search)
+    # =========================================================================
     def update_current_index(self):
-
-        # Primera vez: buscar punto inicial
         if self.current_idx is None:
-            self.current_idx = self.find_closest_point_index()
+            self.current_idx = 0
+            self.current_t   = 0.0
             return
 
-        n = len(self.trajectory)
+        n = len(self.xy_arr)
+        if self.current_idx >= n - 2:
+            return
 
-        # Buscar el punto más cercano en los próximos `search_window` puntos
+        p         = self.state[:2]
         best_idx  = self.current_idx
         best_dist = float('inf')
+        best_t    = self.current_t
 
-        for i in range(self.search_window + 1):
-            idx  = (self.current_idx + i) % n
-            pos  = self.trajectory[idx].pose.position
-            dist = np.hypot(pos.x - self.state[0],
-                            pos.y - self.state[1])
+        start = max(0,     self.current_idx - self.s_search)
+        end   = min(n - 1, self.current_idx + self.search_window)
+
+        for idx in range(start, end):
+            a, b = self.get_segment(idx, n)
+            dist, t = get_projection(p, a, b)
             if dist < best_dist:
                 best_dist = dist
                 best_idx  = idx
+                best_t    = t
 
-        # Solo avanzar, nunca retroceder
+        if best_t >= 0.9999 and best_idx < n - 2:
+            best_idx += 1
+            best_t    = 0.0
+
         if best_idx != self.current_idx:
             self.get_logger().info(
-                f'Index advanced: {self.current_idx} → {best_idx} '
-                f'(dist={best_dist:.2f}m)',
+                f'Segment: {self.current_idx} → {best_idx} '
+                f'(t={best_t:.2f}, dist={best_dist:.3f}m)',
                 throttle_duration_sec=1.0
             )
             self.current_idx = best_idx
+        self.current_t = best_t
 
-    # ==================================================
-    # CONTROL LOOP
-    # ==================================================
-    def control_loop(self):
+    # =========================================================================
+    # Warm start
+    # =========================================================================
+    def get_warm_start(self, opt):
+        nx_states      = 3 * (self.N + 1)
+        states         = opt[:nx_states].reshape(self.N + 1, 3)
+        inputs         = opt[nx_states:].reshape(self.N, 2)
+        states_shifted = np.roll(states, -1, axis=0); states_shifted[-1] = states[-1]
+        inputs_shifted = np.roll(inputs, -1, axis=0); inputs_shifted[-1] = inputs[-1]
+        return np.concatenate([states_shifted.flatten(), inputs_shifted.flatten()])
 
-        if self.trajectory is None or not self.odom_received:
+    @staticmethod
+    def wrap_angle(angle):
+        return np.arctan2(np.sin(angle), np.cos(angle))
+
+    def make_pose_stamped(self, x, y, yaw, stamp):
+        pose = PoseStamped()
+        pose.header.frame_id = 'odom'
+        pose.header.stamp = stamp
+        pose.pose.position.x = float(x)
+        pose.pose.position.y = float(y)
+        pose.pose.position.z = 0.0
+        pose.pose.orientation.z = float(np.sin(yaw * 0.5))
+        pose.pose.orientation.w = float(np.cos(yaw * 0.5))
+        return pose
+
+    def publish_reference_path(self):
+        if self.xy_arr is None or self.yaw_arr is None:
             return
 
-        if len(self.trajectory) < self.N:
+        stamp = self.get_clock().now().to_msg()
+        msg = Path()
+        msg.header.frame_id = 'odom'
+        msg.header.stamp = stamp
+
+        poses = []
+        for i in range(len(self.xy_arr)):
+            poses.append(self.make_pose_stamped(self.xy_arr[i, 0], self.xy_arr[i, 1],
+                                                self.yaw_arr[i], stamp))
+        msg.poses = poses
+        self.reference_path_pub.publish(msg)
+
+    def publish_robot_path(self, stamp):
+        self.robot_path_msg.header.stamp = stamp
+        poses = list(self.robot_path_msg.poses)
+        poses.append(self.make_pose_stamped(self.state[0], self.state[1], self.state[2], stamp))
+        if len(poses) > self.max_history_points:
+            poses = poses[-self.max_history_points:]
+        self.robot_path_msg.poses = poses
+        self.robot_path_pub.publish(self.robot_path_msg)
+
+    def publish_predicted_path(self, opt, stamp):
+        nx_states = 3 * (self.N + 1)
+        states = opt[:nx_states].reshape(self.N + 1, 3)
+
+        msg = Path()
+        msg.header.frame_id = 'odom'
+        msg.header.stamp = stamp
+        msg.poses = [self.make_pose_stamped(x, y, yaw, stamp) for x, y, yaw in states]
+        self.predicted_path_pub.publish(msg)
+
+    def publish_debug_metrics(self, e_lat, e_lon, e_yaw, v_cmd, v_ref, steer, solve_ms):
+        msg = Float64MultiArray()
+        msg.data = [
+            float(e_lat),
+            float(e_lon),
+            float(e_yaw),
+            float(v_cmd),
+            float(v_ref),
+            float(steer),
+            float(self.current_idx if self.current_idx is not None else -1),
+            float(solve_ms),
+        ]
+        self.debug_pub.publish(msg)
+
+    # =========================================================================
+    # Control loop
+    # =========================================================================
+    def control_loop(self):
+        if self.xy_arr is None or not self.odom_received:
+            return
+
+        n = len(self.xy_arr)
+        if n < 2:
             self.get_logger().warn('Trajectory too short!', throttle_duration_sec=2.0)
             self.publish_cmd(np.zeros(2))
             return
@@ -243,55 +380,89 @@ class AckermannMPC(Node):
         try:
             self.update_current_index()
 
-            n   = len(self.trajectory)
-            ref = []
+            ref      = []
+            path_idx = self.current_idx
+            path_t   = self.current_t
 
-            for i in range(self.N):
-                idx  = (self.current_idx + i) % n
-                pos  = self.trajectory[idx].pose.position
-                quat = self.trajectory[idx].pose.orientation
-                _, _, yaw = euler_from_quaternion(
-                    [quat.x, quat.y, quat.z, quat.w])
-                ref += [pos.x, pos.y, yaw]
+            a, b    = self.get_segment(path_idx, n)
+            seg_len = np.linalg.norm(b - a)
 
-            P  = np.concatenate([self.state, ref])
-            x0 = self.last_solution if self.last_solution is not None \
-                 else np.zeros(3*(self.N+1) + 2*self.N)
+            for k in range(self.N):
+                if seg_len > 0.001:
+                    ref_pt  = a + path_t * (b - a)
+                    ref_yaw = self.get_yaw_ref_at(path_idx, path_t)
+                else:
+                    ref_pt  = b
+                    ref_yaw = self.state[2]
 
-            sol = self.solver(
-                x0=x0, p=P,
-                lbg=0, ubg=0,
-                lbx=self.lbx, ubx=self.ubx
-            )
+                v_ref_k = self.get_v_ref_at(path_idx, path_t)
 
-            stats = self.solver.stats()
-            if not stats['success']:
+                # ref = [x_ref, y_ref, ψ_ref, v_ref]
+                # ψ_ref es el yaw del segmento — usado para la rotación a Frenet
+                ref.extend([ref_pt[0], ref_pt[1], ref_yaw, v_ref_k])
+
+                # Avance espacial usando v_ref_k
+                dist_step = v_ref_k * self.dt
+                while dist_step > 0 and path_idx < n - 2:
+                    dist_remaining = (1.0 - path_t) * seg_len
+                    if dist_step <= dist_remaining:
+                        path_t   += dist_step / seg_len
+                        dist_step = 0
+                    else:
+                        dist_step -= dist_remaining
+                        path_idx  += 1
+                        path_t     = 0.0
+                        a, b       = self.get_segment(path_idx, n)
+                        seg_len    = np.linalg.norm(b - a)
+
+                if path_idx >= n - 2 and dist_step > 0:
+                    path_t = 1.0
+
+            P_vec = np.concatenate([self.state, ref])
+            x0    = (self.get_warm_start(self.last_solution)
+                     if self.last_solution is not None
+                     else np.zeros(3 * (self.N + 1) + 2 * self.N))
+
+            t0 = time.perf_counter()
+            sol = self.solver(x0=x0, p=P_vec, lbg=0, ubg=0,
+                              lbx=self.lbx, ubx=self.ubx)
+            solve_ms = 1000.0 * (time.perf_counter() - t0)
+
+            if not self.solver.stats()['success']:
                 self.get_logger().warn(
-                    f'Solver: {stats["return_status"]}',
-                    throttle_duration_sec=1.0
-                )
+                    f'Solver: {self.solver.stats()["return_status"]}',
+                    throttle_duration_sec=1.0)
                 self.publish_cmd(self.prev_u * 0.5)
                 return
 
-            opt = sol['x'].full().flatten()
+            opt            = sol['x'].full().flatten()
             self.last_solution = opt
+            u              = opt[3 * (self.N + 1) : 3 * (self.N + 1) + 2]
+            self.prev_u    = u
 
-            nx = 3*(self.N+1)
-            u  = opt[nx:nx+2]
-            self.prev_u = u
-
-            ref_pt = self.trajectory[self.current_idx].pose.position
-            error  = np.hypot(self.state[0] - ref_pt.x,
-                              self.state[1] - ref_pt.y)
+            # ── Log: errores en Frenet ────────────────────────────────────────
+            a_act, b_act = self.get_segment(self.current_idx, n)
+            ref_pt_now   = a_act + self.current_t * (b_act - a_act)
+            psi_now      = self.get_yaw_ref_at(self.current_idx, self.current_t)
+            dx = self.state[0] - ref_pt_now[0]
+            dy = self.state[1] - ref_pt_now[1]
+            e_lat = abs(-np.sin(psi_now) * dx + np.cos(psi_now) * dy)
+            e_lon = abs( np.cos(psi_now) * dx + np.sin(psi_now) * dy)
+            e_yaw = self.wrap_angle(self.state[2] - psi_now)
+            v_ref_now = self.get_v_ref_at(self.current_idx, self.current_t)
 
             self.get_logger().info(
                 f'Idx: {self.current_idx}/{n} | '
-                f'Ref: ({ref_pt.x:.1f}, {ref_pt.y:.1f}) | '
-                f'Error: {error:.3f}m | '
-                f'v: {u[0]:.2f}m/s | δ: {np.degrees(u[1]):.1f}°',
+                f'e_lat: {e_lat:.3f}m | e_lon: {e_lon:.3f}m | '
+                f'v: {u[0]:.2f}/{v_ref_now:.2f} m/s | '
+                f'δ: {np.degrees(u[1]):.1f}°',
                 throttle_duration_sec=0.5
             )
 
+            now_stamp = self.get_clock().now().to_msg()
+            self.publish_robot_path(now_stamp)
+            self.publish_predicted_path(opt, now_stamp)
+            self.publish_debug_metrics(e_lat, e_lon, e_yaw, u[0], v_ref_now, u[1], solve_ms)
             self.publish_cmd(u)
 
         except Exception as e:
@@ -301,23 +472,17 @@ class AckermannMPC(Node):
             self.publish_cmd(np.zeros(2))
 
     def publish_cmd(self, u):
-        msg = TwistStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        v     = float(u[0])
-        delta = float(u[1])
+        msg                 = TwistStamped()
+        msg.header.stamp    = self.get_clock().now().to_msg()
+        v, delta            = float(u[0]), float(u[1])
         msg.twist.linear.x  = v
-        # ackermann_steering_controller expects steering angle in angular.z
-        #msg.twist.angular.z = delta
         msg.twist.angular.z = v / self.L * np.tan(delta)
         self.cmd_pub.publish(msg)
 
 
 def main():
     rclpy.init()
-    node = AckermannMPC()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    rclpy.spin(AckermannMPC())
 
 
 if __name__ == '__main__':
