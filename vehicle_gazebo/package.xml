@@ -3,7 +3,7 @@
 <package format="3">
   <name>vehicle_gazebo</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Gazebo simulation package for an Ackermann vehicle, including model, and localization configuration.</description>
   <maintainer email="geronimohur@gmail.com">geronimo</maintainer>
   <license>TODO: License declaration</license>
 

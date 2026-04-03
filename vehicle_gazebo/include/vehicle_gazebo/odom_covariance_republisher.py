@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Republish raw odometry with a configurable pose covariance."""
+
 import copy
 
 import rclpy

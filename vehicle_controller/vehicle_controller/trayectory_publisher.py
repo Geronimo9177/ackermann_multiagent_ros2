@@ -20,15 +20,15 @@ class TrajectoryPublisher(Node):
 
         self.timer = self.create_timer(1.0, self.publish_path)
 
-        # Parámetros de trayectoria
+        # Trajectory parameters
         self.traj_type = 'figure8'  # 'circle', 'straight', 'figure8'
         
-        # Para círculo
+        # Circle trajectory parameters
         self.radius = 6.0
-        self.center_x = 6.0  # Robot empieza en (0,0), círculo en (3,0)
+        self.center_x = 6.0
         self.center_y = 0.0
         
-        # Para línea recta
+        # Straight-line trajectory parameters
         self.length = 10.0
         
         self.points = 1000
@@ -36,7 +36,7 @@ class TrajectoryPublisher(Node):
     def publish_path(self):
 
         path = Path()
-        path.header.frame_id = "odom"  # ✅ Frame fijo
+        path.header.frame_id = "odom"  # Fixed reference frame
         path.header.stamp = self.get_clock().now().to_msg()
 
         if self.traj_type == 'circle':
@@ -58,11 +58,9 @@ class TrajectoryPublisher(Node):
 
         raise SystemExit
 
-    # ==========================================
-    # Línea recta (robot empieza en origen)
-    # ==========================================
+    # Straight line 
     def generate_straight_line(self):
-        """Línea recta en dirección +X"""
+        """Straight line in the +X direction."""
         poses = []
         
         x_vals = np.linspace(0, self.length, self.points)
@@ -75,7 +73,6 @@ class TrajectoryPublisher(Node):
             pose.pose.position.y = 0.0
             pose.pose.position.z = 0.0
             
-            # Orientación apuntando hacia +X (yaw = 0)
             quat = quaternion_from_euler(0, 0, 0)
             pose.pose.orientation.x = quat[0]
             pose.pose.orientation.y = quat[1]
@@ -86,13 +83,11 @@ class TrajectoryPublisher(Node):
         
         return poses
 
-    # ==========================================
-    # Círculo (robot empieza cerca del inicio)
-    # ==========================================
+    # Circle 
     def generate_circle(self):
         poses = []
         
-        # ✅ Centro en (0, 6) → pasa exactamente por (0,0)
+        # Center at (0, 6); the path passes through the origin.
         center_x = 0.0
         center_y = self.radius  # 6.0
         
@@ -102,7 +97,6 @@ class TrajectoryPublisher(Node):
             pose = PoseStamped()
             pose.header.frame_id = "odom"
             
-            # t=0 → x=0, y=0 ✅
             x = center_x + self.radius * np.sin(t)
             y = center_y - self.radius * np.cos(t)
             
@@ -110,7 +104,7 @@ class TrajectoryPublisher(Node):
             pose.pose.position.y = y
             pose.pose.position.z = 0.0
             
-            # t=0 → yaw=0 (apunta hacia +X) ✅
+            # At t=0, yaw=0 and the heading points toward +X.
             yaw = t
             
             quat = quaternion_from_euler(0, 0, yaw)
@@ -123,11 +117,10 @@ class TrajectoryPublisher(Node):
         
         return poses
 
-    # ==========================================
-    # Figura de 8 (lemniscata)
-    # ==========================================
+
+    # Figure-eight trajectory (lemniscate)
     def generate_figure8(self):
-        """Trayectoria en forma de 8"""
+        """Figure-eight trajectory."""
         poses = []
         
         t_vals = np.linspace(0, 2*np.pi, self.points)
@@ -137,7 +130,7 @@ class TrajectoryPublisher(Node):
             pose = PoseStamped()
             pose.header.frame_id = "odom"
             
-            # Lemniscata paramétrica
+            # Parametric lemniscate
             x = scale * np.sin(t)
             y = scale * np.sin(t) * np.cos(t)
             
@@ -145,7 +138,7 @@ class TrajectoryPublisher(Node):
             pose.pose.position.y = y
             pose.pose.position.z = 0.0
             
-            # Calcular orientación a partir de la derivada
+            # Compute orientation from the path derivative
             dx = scale * np.cos(t)
             dy = scale * (np.cos(2*t))
             yaw = np.arctan2(dy, dx)

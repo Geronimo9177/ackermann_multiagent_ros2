@@ -11,16 +11,36 @@ from launch.event_handlers import OnProcessExit
 
 def generate_launch_description():
 
-    # Launch Arguments
-    use_sim_time = LaunchConfiguration('use_sim_time', default=True)
+    # Launch arguments
+    use_sim_time = True
     gz_args = LaunchConfiguration('gz_args', default='')
 
-    # Gazebo launch file
+    # Paths
     gazebo_launch = PathJoinSubstitution([
-        FindPackageShare('ros_gz_sim'),
-        'launch',
-        'gz_sim.launch.py'
+        FindPackageShare('ros_gz_sim'), 'launch', 'gz_sim.launch.py'
     ])
+
+    gazebo_world = PathJoinSubstitution([
+        FindPackageShare('vehicle_gazebo'), 'worlds', 'empty.sdf',
+    ])
+
+    robot_controller_config = PathJoinSubstitution([
+        FindPackageShare('vehicle_gazebo'), 'config', 'ackermann_drive_controller.yaml',
+    ])
+
+    sensor_fusion_config = PathJoinSubstitution([
+        FindPackageShare('vehicle_gazebo'), 'config', 'sensor_fusion.yaml',
+    ])
+
+    # Robot description
+    robot_description = ParameterValue(
+        Command(['xacro ', PathJoinSubstitution([
+            FindPackageShare('vehicle_gazebo'), 'models', 'em_3905_base.urdf.xacro'
+        ])]),
+        value_type=str
+    )
+
+    # Nodes
 
     gz_spawn_entity = Node(
         package='ros_gz_sim',
@@ -31,33 +51,6 @@ def generate_launch_description():
                 '-topic', 'robot_description',
                 '-allow_renaming', 'true',
                 '-z', '0.1'])
-    
-    gazebo_world = PathJoinSubstitution(
-        [
-            FindPackageShare('vehicle_gazebo'),
-            'worlds',
-            'empty.sdf',
-        ]
-    )
-
-    # Robot
-    robot_description = ParameterValue(
-        Command(['xacro ', PathJoinSubstitution([
-                        FindPackageShare('vehicle_gazebo'),
-                        'models',
-                        'em_3905_base.urdf.xacro'
-                    ])]),
-        value_type=str
-    )
-
-    # Controllers
-    robot_controllers = PathJoinSubstitution(
-        [
-            FindPackageShare('vehicle_gazebo'),
-            'config',
-            'ackermann_drive_controller.yaml',
-        ]
-    )
 
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
@@ -68,28 +61,22 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['ackermann_steering_controller',
-                   '--param-file',
-                   robot_controllers,
-                   '--controller-ros-args',
-                   '-r /ackermann_steering_controller/tf_odometry:=/tf',
-                   '--controller-ros-args',
-                   '-r /ackermann_steering_controller/reference:=/cmd_vel',
-                   '--controller-ros-args',
-                   '-r /ackermann_steering_controller/odometry:=/ackermann_steering_controller/odometry_raw'
+                   '--param-file', robot_controller_config,
+                   '--controller-ros-args', '-r /ackermann_steering_controller/tf_odometry:=/tf',
+                   '--controller-ros-args', '-r /ackermann_steering_controller/reference:=/cmd_vel',
+                   '--controller-ros-args', '-r /ackermann_steering_controller/odometry:=/ackermann_steering_controller/odometry_raw'
                    ],
-    )
-
-    sensor_fusion_config = PathJoinSubstitution(
-        [
-            FindPackageShare('vehicle_gazebo'),
-            'config',
-            'sensor_fusion.yaml',
-        ]
     )
 
     return LaunchDescription([
 
-        # Bridge 
+        # Launch Gazebo
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(gazebo_launch),
+            launch_arguments=[('gz_args', [gz_args, ' -r -v 1 ', gazebo_world])]
+        ),
+
+        # Bridge Gazebo-ROS2
         Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
@@ -100,16 +87,24 @@ def generate_launch_description():
                    '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',  # GPS
         ],
         remappings=[
-            ('/imu', '/imu/data_raw'),  # Renombrar para Madgwick
+            ('/imu', '/imu/data_raw'), 
         ],
         output='screen'
         ),
 
-        # Launch Gazebo
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(gazebo_launch),
-            launch_arguments=[('gz_args', [gz_args, ' -r -v 1 ', gazebo_world])]
-            ),
+        # Robot State Publisher
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            parameters= [{
+                'robot_description': robot_description,
+                'use_sim_time': use_sim_time,
+            }],
+            output='screen'
+        ),
+
+        # Spawn the robot
+        gz_spawn_entity,
 
         # Spawn controllers after robot is spawned
         RegisterEventHandler(
@@ -126,29 +121,7 @@ def generate_launch_description():
             )
         ),
 
-        # Spawn the robot
-        gz_spawn_entity,
-        
-        # Launch Arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value=use_sim_time,
-            description='If true, use simulated clock'),
-        DeclareLaunchArgument(
-            'description_format',
-            default_value='urdf',
-            description='Robot description format to use, urdf or sdf'),
-
-        # Robot State Publisher
-        Node(
-            package='robot_state_publisher',
-            executable='robot_state_publisher',
-            parameters= [{
-                'robot_description': robot_description
-            }],
-            output='screen'
-        ),
-
+        # Republish odometry with covariance
         Node(
             package='vehicle_gazebo',
             executable='odom_covariance_republisher.py',
@@ -156,6 +129,7 @@ def generate_launch_description():
             output='screen'
         ),
 
+        # Complementary filter
         Node(
             package='imu_complementary_filter',
             executable='complementary_filter_node',
@@ -169,8 +143,9 @@ def generate_launch_description():
             ]
         ),
 
+        # Sensor fusion nodes (GPS and EKF)
         TimerAction(
-            period=8.0,  # segundos
+            period=8.0,  # Delay startup until complementary filter has stabilized
             actions=[
                 # navsat_transform (GPS - Odometry)
                 Node(

@@ -389,7 +389,7 @@ material.
       <gz_frame_id>imu_link</gz_frame_id>
 
         <imu>
-            <!-- Set the covariance matrix -->
+            <!-- Add Gaussian noise to the IMU measurements -->
             <angular_velocity>
                 <x>
                 <noise type="gaussian">
@@ -477,7 +477,7 @@ material.
     </sensor>
   </gazebo>
 
-  <!-- GPS/GNSS Sensor -->
+  <!-- GPS/GNSS sensor -->
   <joint name="gps_joint" type="fixed">
     <origin xyz="0.0 0.0 0.1" rpy="0 0 0"/>
     <parent link="base_link"/>
@@ -546,7 +546,7 @@ material.
     </sensor>
   </gazebo>
 
-  <!-- Groud Truth Pose -->
+  <!-- Ground-truth odometry publisher -->
   <gazebo>
     <plugin filename="gz-sim-odometry-publisher-system" 
             name="gz::sim::systems::OdometryPublisher">

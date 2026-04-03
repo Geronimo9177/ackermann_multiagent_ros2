@@ -13,9 +13,7 @@ from std_msgs.msg import Float64MultiArray
 from tf_transformations import euler_from_quaternion
 
 
-# ==================================================
-# Proyección Ortogonal sobre un Segmento
-# ==================================================
+# Orthogonal projection onto a line segment
 def get_projection(p, a, b):
     v    = b - a
     w    = p - a
@@ -33,19 +31,19 @@ class AckermannMPC(Node):
     def __init__(self):
         super().__init__('ackermann_mpc')
 
-        # ── Parámetros MPC ────────────────────────────────────────────────────
+        # MPC parameters
         self.dt        = 0.05
         self.N         = 20
         self.L         = 0.335
-        self.max_steer = 0.5
+        self.max_steer = 0.785398163  # 45 degrees in radians
         self.max_speed = 1.0
 
-        # ── Estado interno ────────────────────────────────────────────────────
+        # Internal state
         self.state         = np.zeros(3)
         self.prev_u        = np.zeros(2)
         self.last_solution = None
 
-        # Arrays del MultiArray (del nodo TOPP)
+        # Arrays from the MultiArray message (TOPP node)
         self.xy_arr  = None   # (N, 2)
         self.yaw_arr = None   # (N,)
         self.v_arr   = None   # (N,)
@@ -54,27 +52,25 @@ class AckermannMPC(Node):
         self.odom_received = False
         self.path_received = False
 
-        # Seguimiento del camino
+        # Path tracking
         self.current_idx   = None
         self.current_t     = 0.0
         self.search_window = 10
         self.s_search      = 3
 
-        # ── Suscriptores ──────────────────────────────────────────────────────
+        # Goal completion criteria
+        self.goal_tolerance =  0.10
+        self.route_completed = False
+
+        # Subscribers
         self.create_subscription(Odometry, '/ground_truth_odom', self.odom_cb, 10)
         self.create_subscription(Float64MultiArray, '/trajectory_topp',
                                  self.trajectory_cb, 10)
 
-        # ── Publicador ────────────────────────────────────────────────────────
+        # Publishers
         self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
         self.debug_pub = self.create_publisher(Float64MultiArray, '/mpc/debug', 10)
-        self.robot_path_pub = self.create_publisher(Path, '/mpc/robot_path', 10)
-        self.reference_path_pub = self.create_publisher(Path, '/mpc/reference_path', 10)
         self.predicted_path_pub = self.create_publisher(Path, '/mpc/predicted_path', 10)
-
-        self.robot_path_msg = Path()
-        self.robot_path_msg.header.frame_id = 'odom'
-        self.max_history_points = 4000
 
         self.get_logger().info('Setting up MPC solver...')
         self.setup_mpc()
@@ -83,7 +79,6 @@ class AckermannMPC(Node):
         self.create_timer(self.dt, self.control_loop)
         self.create_timer(2.0,     self.debug_status)
 
-    # =========================================================================
     def debug_status(self):
         self.get_logger().info(
             f'Odom: {self.odom_received} | Path: {self.path_received} | '
@@ -92,31 +87,25 @@ class AckermannMPC(Node):
             f'{np.degrees(self.state[2]):.1f}°]'
         )
 
-    # =========================================================================
-    # Setup MPC  —  costo en coordenadas de Frenet (s, l, φ, v)
-    # =========================================================================
+    # Setup MPC: cost function in Frenet coordinates (s, l, φ, v)
     def setup_mpc(self):
         nx, nu = 3, 2
-        # ref por paso: [x_ref, y_ref, yaw_ref, v_ref]
-        # yaw_ref == ψ_ref (ángulo del segmento), se usa para la rotación a Frenet
+        # Reference per step: [x_ref, y_ref, yaw_ref, v_ref]
+        # yaw_ref == ψ_ref (segment angle used for Frenet frame rotation)
         n_ref  = 4
 
         X = ca.MX.sym('X', nx, self.N + 1)
         U = ca.MX.sym('U', nu, self.N)
         P = ca.MX.sym('P', nx + n_ref * self.N)
 
-        # ── Pesos (ecuación 6 del paper AutoMPC) ─────────────────────────────
-        # q1: error longitudinal (s)  — bajo, path following no castiga atraso
-        # q2: error lateral      (l)  — alto, mantenerse sobre el path
-        # q3: error de yaw       (φ)  — medio
-        # q4: error de velocidad (v)  — medio
-        Q_lon = 5.0    # q1  peso longitudinal
-        Q_lat = 80.0   # q2  peso lateral  (>> Q_lon para path following puro)
-        Q_yaw = 8.0    # q3
-        Q_v   = 5.0    # q4
+        # Cost weights (from AutoMPC paper equation 6)
+        Q_lon = 5.0    # q1: longitudinal weight
+        Q_lat = 80.0   # q2: lateral weight (>> Q_lon for path following)
+        Q_yaw = 8.0    # q3: yaw weight
+        Q_v   = 5.0    # q4: velocity weight
 
-        R  = np.diag([0.05, 0.3])   # uso de actuadores (v_cmd, δ)
-        Rd = np.diag([1.0,  2.0])   # suavizado de cambios
+        R  = np.diag([0.05, 0.3])   # Actuator penalty (v_cmd, δ)
+        Rd = np.diag([1.0,  2.0])   # Rate-of-change smoothing
 
         cost = 0
         g    = []
@@ -127,26 +116,26 @@ class AckermannMPC(Node):
             ref = P[nx + n_ref * k : nx + n_ref * k + n_ref]
             # ref[0]=x_ref, ref[1]=y_ref, ref[2]=ψ_ref, ref[3]=v_ref
 
-            # ── Rotación del error de posición al frame del segmento ──────────
-            # Equivalente a proyectar sobre la tangente (s) y normal (l)
+            # Rotate position error into the segment's local frame
+            # Equivalent to projecting onto tangent (s) and normal (l) directions
             dx = st[0] - ref[0]
             dy = st[1] - ref[1]
-            psi = ref[2]   # yaw del segmento
+            psi = ref[2]   # Segment yaw angle
 
-            # Error longitudinal: proyección sobre la dirección del segmento
+            # Longitudinal error: projection along the segment direction
             e_s =  ca.cos(psi) * dx + ca.sin(psi) * dy
 
-            # Error lateral: proyección perpendicular al segmento
-            #   positivo = izquierda del segmento
+            # Lateral error: projection perpendicular to the segment
+            # Positive = left of the segment
             e_l = -ca.sin(psi) * dx + ca.cos(psi) * dy
 
-            # Error de orientación normalizado
+            # Yaw error (normalized)
             e_yaw = ca.atan2(ca.sin(st[2] - ref[2]), ca.cos(st[2] - ref[2]))
 
-            # Error de velocidad (input vs referencia TOPP)
+            # Velocity error (commanded vs TOPP reference)
             e_v = con[0] - ref[3]
 
-            # ── Función de costo (eq. 6 AutoMPC) ─────────────────────────────
+            # Cost function (AutoMPC equation 6)
             cost += Q_lon * e_s**2
             cost += Q_lat * e_l**2
             cost += Q_yaw * e_yaw**2
@@ -157,7 +146,7 @@ class AckermannMPC(Node):
                 du    = U[:, k] - U[:, k - 1]
                 cost += ca.mtimes([du.T, Rd, du])
 
-            # ── Dinámica cinemática de bicicleta ──────────────────────────────
+            # Bicycle kinematics dynamics
             x_next = ca.vertcat(
                 st[0] + con[0] * ca.cos(st[2]) * self.dt,
                 st[1] + con[0] * ca.sin(st[2]) * self.dt,
@@ -165,7 +154,7 @@ class AckermannMPC(Node):
             )
             g.append(X[:, k + 1] - x_next)
 
-        # Condición inicial
+        # Initial condition constraint
         g.append(X[:, 0] - P[0:nx])
 
         OPT  = ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(U, -1, 1))
@@ -190,9 +179,7 @@ class AckermannMPC(Node):
 
         self.n_ref = n_ref
 
-    # =========================================================================
-    # Callbacks
-    # =========================================================================
+    # Subscription callbacks
     def odom_cb(self, msg):
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
@@ -203,8 +190,8 @@ class AckermannMPC(Node):
             self.odom_received = True
 
     def trajectory_cb(self, msg: Float64MultiArray):
-        """Deserializa Float64MultiArray → arrays numpy.
-        Layout: [x, y, yaw, v, s] por punto.
+        """Deserialize Float64MultiArray to numpy arrays.
+        Layout: [x, y, yaw, v, s] per point.
         """
         n      = msg.layout.dim[0].size
         fields = msg.layout.dim[1].size
@@ -217,6 +204,8 @@ class AckermannMPC(Node):
 
         self.current_idx = None
         self.current_t   = 0.0
+        self.route_completed = False
+        self.last_solution = None
 
         if not self.path_received:
             self.get_logger().info(
@@ -225,31 +214,22 @@ class AckermannMPC(Node):
             )
             self.path_received = True
 
-        self.publish_reference_path()
-
-    # =========================================================================
-    # Helpers de geometría
-    # =========================================================================
+    # Geometry helpers
     def get_segment(self, i, n):
         idx_a = min(i, n - 2)
         return self.xy_arr[idx_a], self.xy_arr[idx_a + 1]
 
-    def _interp(self, arr, idx, t):
-        idx_a = min(idx, len(arr) - 2)
-        return float((1.0 - t) * arr[idx_a] + t * arr[idx_a + 1])
-
     def get_v_ref_at(self, idx, t):
-        return self._interp(self.v_arr, idx, t)
-
+        idx_a = min(idx, len(self.v_arr) - 2)
+        return float((1.0 - t) * self.v_arr[idx_a] + t * self.v_arr[idx_a + 1])
+    
     def get_yaw_ref_at(self, idx, t):
-        """Interpolación circular del yaw de referencia."""
+        """Circular interpolation of reference yaw angle."""
         idx_a = min(idx, len(self.yaw_arr) - 2)
         a0, a1 = self.yaw_arr[idx_a], self.yaw_arr[idx_a + 1]
         return float(a0 + t * np.arctan2(np.sin(a1 - a0), np.cos(a1 - a0)))
 
-    # =========================================================================
-    # Actualización del índice (look-ahead search)
-    # =========================================================================
+    # Index update (look-ahead search)
     def update_current_index(self):
         if self.current_idx is None:
             self.current_idx = 0
@@ -289,9 +269,7 @@ class AckermannMPC(Node):
             self.current_idx = best_idx
         self.current_t = best_t
 
-    # =========================================================================
-    # Warm start
-    # =========================================================================
+    # Warm start for MPC solver
     def get_warm_start(self, opt):
         nx_states      = 3 * (self.N + 1)
         states         = opt[:nx_states].reshape(self.N + 1, 3)
@@ -300,9 +278,12 @@ class AckermannMPC(Node):
         inputs_shifted = np.roll(inputs, -1, axis=0); inputs_shifted[-1] = inputs[-1]
         return np.concatenate([states_shifted.flatten(), inputs_shifted.flatten()])
 
-    @staticmethod
-    def wrap_angle(angle):
-        return np.arctan2(np.sin(angle), np.cos(angle))
+    def should_complete_route(self):
+        if self.xy_arr is None or self.current_idx is None:
+            return False
+        goal = self.xy_arr[-1]
+        goal_distance = float(np.hypot(self.state[0] - goal[0], self.state[1] - goal[1]))
+        return goal_distance<= self.goal_tolerance
 
     def make_pose_stamped(self, x, y, yaw, stamp):
         pose = PoseStamped()
@@ -315,31 +296,6 @@ class AckermannMPC(Node):
         pose.pose.orientation.w = float(np.cos(yaw * 0.5))
         return pose
 
-    def publish_reference_path(self):
-        if self.xy_arr is None or self.yaw_arr is None:
-            return
-
-        stamp = self.get_clock().now().to_msg()
-        msg = Path()
-        msg.header.frame_id = 'odom'
-        msg.header.stamp = stamp
-
-        poses = []
-        for i in range(len(self.xy_arr)):
-            poses.append(self.make_pose_stamped(self.xy_arr[i, 0], self.xy_arr[i, 1],
-                                                self.yaw_arr[i], stamp))
-        msg.poses = poses
-        self.reference_path_pub.publish(msg)
-
-    def publish_robot_path(self, stamp):
-        self.robot_path_msg.header.stamp = stamp
-        poses = list(self.robot_path_msg.poses)
-        poses.append(self.make_pose_stamped(self.state[0], self.state[1], self.state[2], stamp))
-        if len(poses) > self.max_history_points:
-            poses = poses[-self.max_history_points:]
-        self.robot_path_msg.poses = poses
-        self.robot_path_pub.publish(self.robot_path_msg)
-
     def publish_predicted_path(self, opt, stamp):
         nx_states = 3 * (self.N + 1)
         states = opt[:nx_states].reshape(self.N + 1, 3)
@@ -350,12 +306,16 @@ class AckermannMPC(Node):
         msg.poses = [self.make_pose_stamped(x, y, yaw, stamp) for x, y, yaw in states]
         self.predicted_path_pub.publish(msg)
 
-    def publish_debug_metrics(self, e_lat, e_lon, e_yaw, v_cmd, v_ref, steer, solve_ms):
+    def publish_debug_metrics(self, x_now, y_now, yaw_now, x_ref, y_ref, yaw_ref,
+                              v_cmd, v_ref, steer, solve_ms):
         msg = Float64MultiArray()
         msg.data = [
-            float(e_lat),
-            float(e_lon),
-            float(e_yaw),
+            float(x_now),
+            float(y_now),
+            float(yaw_now),
+            float(x_ref),
+            float(y_ref),
+            float(yaw_ref),
             float(v_cmd),
             float(v_ref),
             float(steer),
@@ -364,12 +324,11 @@ class AckermannMPC(Node):
         ]
         self.debug_pub.publish(msg)
 
-    # =========================================================================
-    # Control loop
-    # =========================================================================
+    # Main control loop
     def control_loop(self):
-        if self.xy_arr is None or not self.odom_received:
+        if self.xy_arr is None or not self.odom_received or self.route_completed:
             return
+
 
         n = len(self.xy_arr)
         if n < 2:
@@ -379,6 +338,17 @@ class AckermannMPC(Node):
 
         try:
             self.update_current_index()
+
+            if self.current_idx >= int(0.95*(n-1)):
+                if self.should_complete_route():
+                    self.route_completed = True
+                    self.path_received = False
+                    self.current_idx   = None
+                    self.publish_cmd(np.zeros(2))
+                    self.get_logger().info(
+                        f'Route completed (tol={self.goal_tolerance:.3f} m)'
+                    )
+                    return
 
             ref      = []
             path_idx = self.current_idx
@@ -398,10 +368,10 @@ class AckermannMPC(Node):
                 v_ref_k = self.get_v_ref_at(path_idx, path_t)
 
                 # ref = [x_ref, y_ref, ψ_ref, v_ref]
-                # ψ_ref es el yaw del segmento — usado para la rotación a Frenet
+                # ψ_ref is the segment yaw used for Frenet frame rotation
                 ref.extend([ref_pt[0], ref_pt[1], ref_yaw, v_ref_k])
 
-                # Avance espacial usando v_ref_k
+                # Spatial advance along the path using v_ref_k
                 dist_step = v_ref_k * self.dt
                 while dist_step > 0 and path_idx < n - 2:
                     dist_remaining = (1.0 - path_t) * seg_len
@@ -440,7 +410,7 @@ class AckermannMPC(Node):
             u              = opt[3 * (self.N + 1) : 3 * (self.N + 1) + 2]
             self.prev_u    = u
 
-            # ── Log: errores en Frenet ────────────────────────────────────────
+            # Compute Frenet frame errors for logging
             a_act, b_act = self.get_segment(self.current_idx, n)
             ref_pt_now   = a_act + self.current_t * (b_act - a_act)
             psi_now      = self.get_yaw_ref_at(self.current_idx, self.current_t)
@@ -448,7 +418,7 @@ class AckermannMPC(Node):
             dy = self.state[1] - ref_pt_now[1]
             e_lat = abs(-np.sin(psi_now) * dx + np.cos(psi_now) * dy)
             e_lon = abs( np.cos(psi_now) * dx + np.sin(psi_now) * dy)
-            e_yaw = self.wrap_angle(self.state[2] - psi_now)
+            e_yaw = np.arctan2(np.sin(self.state[2] - psi_now), np.cos(self.state[2] - psi_now))
             v_ref_now = self.get_v_ref_at(self.current_idx, self.current_t)
 
             self.get_logger().info(
@@ -460,9 +430,12 @@ class AckermannMPC(Node):
             )
 
             now_stamp = self.get_clock().now().to_msg()
-            self.publish_robot_path(now_stamp)
             self.publish_predicted_path(opt, now_stamp)
-            self.publish_debug_metrics(e_lat, e_lon, e_yaw, u[0], v_ref_now, u[1], solve_ms)
+            self.publish_debug_metrics(
+                self.state[0], self.state[1], self.state[2],
+                ref_pt_now[0], ref_pt_now[1], psi_now,
+                u[0], v_ref_now, u[1], solve_ms
+            )
             self.publish_cmd(u)
 
         except Exception as e:

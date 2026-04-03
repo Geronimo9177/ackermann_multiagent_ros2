@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Visualize and compare ground-truth and filtered odometry in real time."""
+
 import sys
 import math
 import numpy as np

@@ -1,4 +1,4 @@
-# GPS to ODOM Transform 
+# GPS to odometry transform
 navsat_transform_node:
   ros__parameters:
     frequency: 30.0
@@ -11,14 +11,14 @@ navsat_transform_node:
     use_odometry_yaw: false
     wait_for_datum: false
 
-# Complementary Filter
+# Complementary filter
 imu_complementary_filter:
   ros__parameters:
 
-    # Magnetómetro
+    # Magnetometer
     use_mag: true
 
-    # Ganancia
+    # Gain
     gain_acc: 0.1
     gain_mag: 0.1
 
@@ -29,7 +29,7 @@ imu_complementary_filter:
     remove_gravity_vector: false
     fixed_frame: odom
 
-# EKF Filter Local
+# Local EKF filter
 ekf_filter_node_odom:
     ros__parameters:
         frequency: 100.0
@@ -68,7 +68,7 @@ ekf_filter_node_odom:
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true
 
-# EKF Filter Global
+# Global EKF filter
 ekf_filter_node_map:
     ros__parameters:
         frequency: 100.0
