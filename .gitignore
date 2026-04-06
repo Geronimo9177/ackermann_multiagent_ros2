@@ -1,3 +1,5 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:606bcf6ad792237b59e6be5528c9919f23842e14fa8cf938e8fa483a44a4bad4
-size 133
+.vscode/
+
+vehicle_gazebo/.vscode/
+vehicle_controller/vehicle_controller/__init__.py
+vehicle_controller/vehicle_controller/__pycache__
