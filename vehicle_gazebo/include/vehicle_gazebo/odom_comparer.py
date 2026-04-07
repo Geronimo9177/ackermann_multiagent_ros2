@@ -26,7 +26,7 @@ class OdometryComparer(Node):
 
         # --- Time synchronized subscribers ---
         self.gt_sub = Subscriber(self, Odometry, '/ground_truth_odom')
-        self.ctrl_sub = Subscriber(self, Odometry, '/odometry/global')
+        self.ctrl_sub = Subscriber(self, Odometry, '/odometry/local')
 
         self.sync = ApproximateTimeSynchronizer(
             [self.gt_sub, self.ctrl_sub],

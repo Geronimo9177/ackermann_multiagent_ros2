@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 
-<!-- em_3905.urdf.xacro
+<!-- traxxas.urdf.xacro
 
 This file defines a model of a Traxxas(R) E-Maxx(R) #3905 RC (Radio Controlled)
 truck.
@@ -14,7 +14,7 @@ must have a collision element. Furthermore, the link must have a Gazebo
 material.
 -->
 
-<robot name="em_3905" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<robot name="traxxas" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- Degree-to-radian conversions -->
   <xacro:property name="degrees_45" value="0.785398163"/>
@@ -360,15 +360,15 @@ material.
 
   <!-- IMU frame -->
   <joint name="imu_joint" type="fixed">
-    <origin xyz="${wheelbase / 2} 0 0.02" rpy="0 0 0"/>
+    <origin xyz="0 0 0.001" rpy="0 0 0"/>
     <parent link="base_link" />
     <child link="imu_link" />
   </joint>
 
   <link name="imu_link"> 
-    <visual> 
+    <visual>
       <geometry> 
-        <box size="0.02 0.035 0.002"/> 
+        <box size="0.030 0.025 0.002"/> 
       </geometry> 
       <material name="imu_mat"/>
     </visual> 
@@ -479,15 +479,15 @@ material.
 
   <!-- GPS/GNSS sensor -->
   <joint name="gps_joint" type="fixed">
-    <origin xyz="0.0 0.0 0.1" rpy="0 0 0"/>
-    <parent link="base_link"/>
+    <origin xyz="0 0 0.004" rpy="0 0 0"/>
+    <parent link="imu_link"/>
     <child link="gps_link"/>
   </joint>
 
   <link name="gps_link">
     <visual>
       <geometry>
-        <cylinder radius="0.02" length="0.05"/>
+        <box size="0.015 0.015 0.006"/>
       </geometry>
       <material name="gps_mat">
         <color rgba="1 1 0 1"/>

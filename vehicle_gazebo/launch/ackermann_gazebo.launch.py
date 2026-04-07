@@ -1,18 +1,27 @@
 from launch import LaunchDescription
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
+from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import RegisterEventHandler, DeclareLaunchArgument
+from launch.actions import RegisterEventHandler
 from launch.event_handlers import OnProcessExit
 
 def generate_launch_description():
 
     # Launch arguments
     use_sim_time = True
+
+    declare_vehicle = DeclareLaunchArgument(
+        'vehicle',
+        default_value='prius',
+        description='Vehicle model to simulate: traxxas or prius'
+    )
+
+    vehicle = LaunchConfiguration('vehicle')
+
     gz_args = LaunchConfiguration('gz_args', default='')
 
     # Paths
@@ -32,10 +41,10 @@ def generate_launch_description():
         FindPackageShare('vehicle_gazebo'), 'config', 'sensor_fusion.yaml',
     ])
 
-    # Robot description
+    # Robot description: traxxas.urdf.xacro or prius.urdf.xacro
     robot_description = ParameterValue(
         Command(['xacro ', PathJoinSubstitution([
-            FindPackageShare('vehicle_gazebo'), 'models', 'em_3905_base.urdf.xacro'
+            FindPackageShare('vehicle_gazebo'), 'models', [vehicle, '.urdf.xacro']
         ])]),
         value_type=str
     )
@@ -50,7 +59,7 @@ def generate_launch_description():
                 '-name', 'ackermann_vehicle',
                 '-topic', 'robot_description',
                 '-allow_renaming', 'true',
-                '-z', '0.1'])
+                '-z', '0.0'])
 
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
@@ -60,15 +69,17 @@ def generate_launch_description():
     ackermann_steering_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['ackermann_steering_controller',
-                   '--param-file', robot_controller_config,
-                   '--controller-ros-args', '-r /ackermann_steering_controller/tf_odometry:=/tf',
-                   '--controller-ros-args', '-r /ackermann_steering_controller/reference:=/cmd_vel',
-                   '--controller-ros-args', '-r /ackermann_steering_controller/odometry:=/ackermann_steering_controller/odometry_raw'
-                   ],
+        arguments=[        
+            ['ackermann_steering_controller_', vehicle],
+            '--param-file', robot_controller_config,
+            '--controller-ros-args', ['-r /ackermann_steering_controller_', vehicle, '/tf_odometry:=/tf'],
+            '--controller-ros-args', ['-r /ackermann_steering_controller_', vehicle, '/reference:=/cmd_vel'],
+            '--controller-ros-args', ['-r /ackermann_steering_controller_', vehicle, '/odometry:=/ackermann_steering_controller/odometry_raw'],
+        ],
     )
 
     return LaunchDescription([
+        declare_vehicle,
 
         # Launch Gazebo
         IncludeLaunchDescription(
@@ -145,7 +156,7 @@ def generate_launch_description():
 
         # Sensor fusion nodes (GPS and EKF)
         TimerAction(
-            period=8.0,  # Delay startup until complementary filter has stabilized
+            period=12.0,  # Delay startup until complementary filter has stabilized
             actions=[
                 # navsat_transform (GPS - Odometry)
                 Node(
