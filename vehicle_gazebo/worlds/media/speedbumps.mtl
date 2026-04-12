@@ -1,0 +1,211 @@
+# Blender 4.1.0 MTL File: 'baylandsV2.blend'
+# www.blender.org
+
+newmtl rgwerger5h54rt665y65rjthrt
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.001
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.004
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.005
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.006
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.007
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.008
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.009
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.010
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.011
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.012
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.013
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.014
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.015
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.016
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.017
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.018
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.019
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png
+
+newmtl rgwerger5h54rt665y65rjthrt.020
+Ns 806.730591
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 Textures/PSH_Normal.png

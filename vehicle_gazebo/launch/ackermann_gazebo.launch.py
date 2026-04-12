@@ -91,11 +91,17 @@ def generate_launch_description():
         Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
-        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-                   "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", #IMU data
-                   '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', #Ground truth odometry
-                   "magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer", #Magnetometer data
-                   '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',  # GPS
+        arguments=[ 
+                    '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+                    "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", # IMU data
+                    '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', # Ground truth odometry
+                    "magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer", # Magnetometer data
+                    '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',  # GPS
+                    # Segmentation camera
+                    '/segmentation/colored_map@sensor_msgs/msg/Image[gz.msgs.Image', # Colored map
+                    '/segmentation/labels_map@sensor_msgs/msg/Image[gz.msgs.Image', # Labels map
+                    '/segmentation/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo', # Camera info
+                
         ],
         remappings=[
             ('/imu', '/imu/data_raw'), 

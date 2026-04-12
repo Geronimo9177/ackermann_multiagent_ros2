@@ -75,7 +75,7 @@
     </scene>
 
     <model name="baylands_01">
-      <pose>0 0 -1.3 0 0 0</pose>
+      <pose>0 0 -3.3 0 0 0</pose>
       <static>true</static>
 
       <link name="body3">
@@ -95,5 +95,56 @@
         </collision>
       </link>
     </model>
+
+    <model name="speedbumps_01">
+      <pose>0 0 -3.3 0 0 0</pose>
+      <static>true</static>
+
+      <link name="body_speedbumps">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>media/speedbumps.obj</uri>
+            </mesh>
+          </geometry>
+          <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">
+            <label>1</label>
+          </plugin>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <mesh>
+              <uri>media/speedbumps.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="potholes_01">
+      <pose>0 0 -3.3 0 0 0</pose>
+      <static>true</static>
+
+      <link name="body_speedbumps">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>media/potholes.obj</uri>
+            </mesh>
+          </geometry>
+          <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">
+            <label>2</label>
+          </plugin>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <mesh>
+              <uri>media/potholes.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    
   </world>
 </sdf>
