@@ -36,6 +36,7 @@
   <!-- odom_comparer -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>message_filters</exec_depend>
   <exec_depend>python3-pyqtgraph</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
