@@ -23,7 +23,7 @@ ackermann_steering_controller_traxxas:
     enable_odom_tf: true
     twist_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
     pose_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
-    position_feedback: true
+    position_feedback: false
 
 ackermann_steering_controller_prius:
   ros__parameters:
@@ -43,4 +43,4 @@ ackermann_steering_controller_prius:
     enable_odom_tf: true
     twist_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
     pose_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
-    position_feedback: true
+    position_feedback: false

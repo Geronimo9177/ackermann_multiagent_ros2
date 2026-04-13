@@ -75,7 +75,7 @@
     </scene>
 
     <model name="baylands_01">
-      <pose>0 0 -3.3 0 0 0</pose>
+      <pose>0 0 -3 0 0 0</pose>
       <static>true</static>
 
       <link name="body3">
@@ -97,7 +97,7 @@
     </model>
 
     <model name="speedbumps_01">
-      <pose>0 0 -3.3 0 0 0</pose>
+      <pose>0 0 -3 0 0 0</pose>
       <static>true</static>
 
       <link name="body_speedbumps">
@@ -122,7 +122,7 @@
     </model>
 
     <model name="potholes_01">
-      <pose>0 0 -3.3 0 0 0</pose>
+      <pose>0 0 -3 0 0 0</pose>
       <static>true</static>
 
       <link name="body_speedbumps">

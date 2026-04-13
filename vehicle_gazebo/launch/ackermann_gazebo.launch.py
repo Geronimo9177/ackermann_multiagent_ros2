@@ -64,8 +64,10 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['joint_state_broadcaster'],
+        arguments=['joint_state_broadcaster',
+                   '--controller-manager-timeout', '60'],
     )
+
     ackermann_steering_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
@@ -127,7 +129,12 @@ def generate_launch_description():
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=gz_spawn_entity,
-                on_exit=[joint_state_broadcaster_spawner],
+                on_exit=[
+                    TimerAction(
+                        period=5.0,  # Delay to ensure robot is fully spawned
+                        actions=[joint_state_broadcaster_spawner]
+                    )
+                ],
             )
         ),
 

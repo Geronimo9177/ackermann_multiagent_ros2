@@ -220,7 +220,7 @@
 
     <gazebo reference="${prefix}_front_wheel">
       <mu1>0.9</mu1><mu2>0.9</mu2>
-      <minDepth>0.005</minDepth><kp>1e8</kp>
+      <minDepth>0.005</minDepth><kp>1e8</kp><kd>1e4</kd>
     </gazebo>
   </xacro:macro>
 
