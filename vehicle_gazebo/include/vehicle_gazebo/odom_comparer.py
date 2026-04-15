@@ -22,11 +22,23 @@ class OdometryComparer(Node):
 
         # Parameters
         self.declare_parameter('window_size', 10000)
+        self.declare_parameter('ekf_mode', 'global')
         self.window_size = self.get_parameter('window_size').value
+
+        mode_raw = str(self.get_parameter('ekf_mode').value).strip().lower()
+        if mode_raw not in ('local', 'global'):
+            self.get_logger().warn(
+                f"Invalid ekf_mode='{mode_raw}', expected 'local' or 'global'. Using 'global'."
+            )
+            mode_raw = 'global'
+
+        self.ekf_mode = mode_raw
+        self.ekf_topic = f'/odometry/{self.ekf_mode}'
+        self.ekf_label = f'EKF {self.ekf_mode}'
 
         # --- Time synchronized subscribers ---
         self.gt_sub = Subscriber(self, Odometry, '/ground_truth_odom')
-        self.ctrl_sub = Subscriber(self, Odometry, '/odometry/local')
+        self.ctrl_sub = Subscriber(self, Odometry, self.ekf_topic)
 
         self.sync = ApproximateTimeSynchronizer(
             [self.gt_sub, self.ctrl_sub],
@@ -66,7 +78,9 @@ class OdometryComparer(Node):
 
         self.init_plots()
 
-        self.get_logger().info('PyQtGraph Odometry Comparer started (time synced)')
+        self.get_logger().info(
+            f'PyQtGraph Odometry Comparer started (time synced) using {self.ekf_topic}'
+        )
 
     # ---------------- Math utils ----------------
 
@@ -99,7 +113,7 @@ class OdometryComparer(Node):
         self.ax1.setAspectLocked(True)
         self.ax1.addLegend()
         self.gt_traj = self.ax1.plot(pen='g', name='Ground Truth')
-        self.ctrl_traj = self.ax1.plot(pen='b', name='EKF')
+        self.ctrl_traj = self.ax1.plot(pen='b', name=self.ekf_label)
 
         self.axYawErr = self.win.addPlot(title='Yaw Error (deg)')
         self.yaw_err_curve = self.axYawErr.plot(pen='m')

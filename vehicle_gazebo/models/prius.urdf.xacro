@@ -408,23 +408,23 @@
         <position_sensing>
           <horizontal>
             <noise type="gaussian">
-              <mean>0.0</mean><stddev>0.00000018</stddev>
+              <mean>0.0</mean><stddev>0.000018</stddev>
               <bias_mean>0.0</bias_mean>
             </noise>
           </horizontal>
           <vertical>
             <noise type="gaussian">
-              <mean>0.0</mean><stddev>0.05</stddev>
+              <mean>0.0</mean><stddev>3.0</stddev>
               <bias_mean>0.0</bias_mean>
             </noise>
           </vertical>
         </position_sensing>
         <velocity_sensing>
           <horizontal>
-            <noise type="gaussian"><mean>0.0</mean><stddev>0.01</stddev></noise>
+            <noise type="gaussian"><mean>0.0</mean><stddev>0.10</stddev></noise>
           </horizontal>
           <vertical>
-            <noise type="gaussian"><mean>0.0</mean><stddev>0.02</stddev></noise>
+            <noise type="gaussian"><mean>0.0</mean><stddev>0.15</stddev></noise>
           </vertical>
         </velocity_sensing>
       </navsat>

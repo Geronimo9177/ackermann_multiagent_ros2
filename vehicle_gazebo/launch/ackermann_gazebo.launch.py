@@ -107,6 +107,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('/imu', '/imu/data_raw'), 
+            ('/gps/fix', '/gps/fix_raw'), 
         ],
         output='screen'
         ),
@@ -173,10 +174,14 @@ def generate_launch_description():
             executable='imu_covariance_republisher.py',
             name='imu_covariance_republisher',
             output='screen',
-            parameters=[{
-                'input_topic': '/imu/data',
-                'output_topic': '/imu/data_cov',
-            }]
+        ),
+
+        # Republish GPS with non-zero covariance for navsat_transform/global EKF
+        Node(
+            package='vehicle_gazebo',
+            executable='gps_covariance_republisher.py',
+            name='gps_covariance_republisher',
+            output='screen',
         ),
 
         # Sensor fusion nodes (GPS and EKF)
@@ -192,28 +197,28 @@ def generate_launch_description():
                     remappings=[('odometry/filtered', '/odometry/local')]
                 ),
                 
-                # Node(
-                #     package='robot_localization',
-                #     executable='ekf_node',
-                #     name='ekf_filter_node_map',
-                #     output='screen',
-                #     parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
-                #     remappings=[('odometry/filtered', '/odometry/global')]
-                # ),
+                Node(
+                    package='robot_localization',
+                    executable='ekf_node',
+                    name='ekf_filter_node_map',
+                    output='screen',
+                    parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
+                    remappings=[('odometry/filtered', '/odometry/global')]
+                ),
 
-                # # navsat_transform (GPS - Odometry)
-                # Node(
-                #     package='robot_localization',
-                #     executable='navsat_transform_node',
-                #     name='navsat_transform_node',
-                #     parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
-                #     remappings=[
-                #         ('imu', '/imu/data_cov'),
-                #         ('gps/fix', '/gps/fix'),
-                #         ('odometry/filtered', '/odometry/global'),
-                #         ('odometry/gps', '/odometry/gps'),
-                #     ]
-                # ),
+                # navsat_transform (GPS - Odometry)
+                Node(
+                    package='robot_localization',
+                    executable='navsat_transform_node',
+                    name='navsat_transform_node',
+                    parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
+                    remappings=[
+                        ('imu', '/imu/data_cov'),
+                        ('gps/fix', '/gps/fix'),
+                        ('odometry/filtered', '/odometry/global'),
+                        ('odometry/gps', '/odometry/gps'),
+                    ]
+                ),
             ]
         )
     ])

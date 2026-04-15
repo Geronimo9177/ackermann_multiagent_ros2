@@ -20,6 +20,7 @@ install(PROGRAMS
   include/vehicle_gazebo/odom_comparer.py
   include/vehicle_gazebo/odom_covariance_republisher.py
   include/vehicle_gazebo/imu_covariance_republisher.py
+  include/vehicle_gazebo/gps_covariance_republisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -2,14 +2,15 @@
 navsat_transform_node:
   ros__parameters:
     frequency: 30.0
-    delay: 3.0
+    #delay: 3.0
     magnetic_declination_radians: 0.0 
     yaw_offset: 0.0 
     zero_altitude: false
     broadcast_utm_transform: true
     publish_filtered_gps: true
     use_odometry_yaw: false
-    wait_for_datum: false
+    wait_for_datum: true
+    datum: [55.944831, -3.186998, 0.0]  # lat, lon, yaw
 
 # Complementary filter
 imu_complementary_filter:
@@ -71,7 +72,7 @@ ekf_filter_node_odom:
 # Global EKF filter
 ekf_filter_node_map:
     ros__parameters:
-        frequency: 100.0
+        frequency: 30.0
         sensor_timeout: 0.1
         two_d_mode: false
         publish_tf: true
@@ -87,7 +88,7 @@ ekf_filter_node_map:
         #vroll , vpitch, vyaw,
         #ax    , ay    , az
         odom0: /ackermann_steering_controller/odometry
-        odom0_config: [true, true, false,
+        odom0_config: [false, false, false,
                        false, false, true,
                        true, false, false,
                        false, false, true,
@@ -97,7 +98,7 @@ ekf_filter_node_map:
         odom0_relative: false
 
         odom1: /odometry/gps
-        odom1_config: [true,  true,  true,
+        odom1_config: [true,  true,  false,
                       false, false, false,
                       false, false, false,
                       false, false, false,
