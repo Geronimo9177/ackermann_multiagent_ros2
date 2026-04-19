@@ -10,7 +10,7 @@ import time
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import TwistStamped, PoseStamped
 from std_msgs.msg import Float64MultiArray
-from tf_transformations import euler_from_quaternion
+from tf_transformations import quaternion_matrix
 
 
 # Orthogonal projection onto a line segment
@@ -26,22 +26,58 @@ def get_projection(p, a, b):
     return dist, t_clamped
 
 
+def wrap_angle(angle):
+    return float(np.arctan2(np.sin(angle), np.cos(angle)))
+
+
+def nearest_angle(reference, around):
+    """Map reference angle to the 2*pi branch closest to around."""
+    return float(around + wrap_angle(reference - around))
+
+
+def _yaw_from_pose(pose_stamped):
+    q = pose_stamped.pose.orientation
+
+    # Convert quaternion to rotation matrix.
+    R = quaternion_matrix([q.x, q.y, q.z, q.w])
+
+    # Vehicle forward axis in world frame (body X axis).
+    forward = R[:3, 0]
+
+    # Project heading to XY plane.
+    fx, fy = forward[0], forward[1]
+
+    # Avoid unstable angle when heading is almost vertical.
+    norm = np.hypot(fx, fy)
+    if norm < 1e-6:
+        return 0.0
+
+    return float(np.arctan2(fy, fx))
+
+
 class AckermannMPC(Node):
 
     def __init__(self):
         super().__init__('ackermann_mpc')
 
         # MPC parameters
-        self.dt        = 0.05
-        self.N         = 20
-        self.L         = 0.335
-        self.max_steer = 0.785398163  # 45 degrees in radians
-        self.max_speed = 1.0
+        self.declare_parameter('dt', 0.05)
+        self.declare_parameter('N', 20)
+        self.declare_parameter('wheelbase', 2.55)
+        self.declare_parameter('max_steer', 0.6458)
+        self.declare_parameter('max_speed', 8.0)
+
+        self.dt = self.get_parameter('dt').value
+        self.N  = self.get_parameter('N').value
+        self.L = self.get_parameter('wheelbase').value
+        self.max_steer = self.get_parameter('max_steer').value
+        self.max_speed = self.get_parameter('max_speed').value
 
         # Internal state
         self.state         = np.zeros(3)
         self.prev_u        = np.zeros(2)
         self.last_solution = None
+        self.yaw_cont      = None
 
         # Arrays from the MultiArray message (TOPP node)
         self.xy_arr  = None   # (N, 2)
@@ -99,13 +135,13 @@ class AckermannMPC(Node):
         P = ca.MX.sym('P', nx + n_ref * self.N)
 
         # Cost weights (from AutoMPC paper equation 6)
-        Q_lon = 5.0    # q1: longitudinal weight
-        Q_lat = 80.0   # q2: lateral weight (>> Q_lon for path following)
-        Q_yaw = 8.0    # q3: yaw weight
-        Q_v   = 5.0    # q4: velocity weight
+        Q_lon = 3.0    # q1: longitudinal weight
+        Q_lat = 25.0   # q2: lateral weight (>> Q_lon for path following)
+        Q_yaw = 25.0    # q3: yaw weight
+        Q_v   = 1.0    # q4: velocity weight
 
-        R  = np.diag([0.05, 0.3])   # Actuator penalty (v_cmd, δ)
-        Rd = np.diag([1.0,  2.0])   # Rate-of-change smoothing
+        R  = np.diag([0.1, 0.6])   # Actuator penalty (v_cmd, δ)
+        Rd = np.diag([1.5,  50.0])   # Rate-of-change smoothing
 
         cost = 0
         g    = []
@@ -182,9 +218,15 @@ class AckermannMPC(Node):
     # Subscription callbacks
     def odom_cb(self, msg):
         p = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        self.state = np.array([p.x, p.y, yaw])
+        yaw_wrapped = _yaw_from_pose(msg.pose)
+
+        if self.yaw_cont is None:
+            self.yaw_cont = yaw_wrapped
+        else:
+            dyaw = wrap_angle(yaw_wrapped - wrap_angle(self.yaw_cont))
+            self.yaw_cont += dyaw
+
+        self.state = np.array([p.x, p.y, self.yaw_cont])
         if not self.odom_received:
             self.get_logger().info('First odometry received!')
             self.odom_received = True
@@ -356,14 +398,18 @@ class AckermannMPC(Node):
 
             a, b    = self.get_segment(path_idx, n)
             seg_len = np.linalg.norm(b - a)
+            yaw_anchor = self.state[2]
 
             for k in range(self.N):
                 if seg_len > 0.001:
                     ref_pt  = a + path_t * (b - a)
-                    ref_yaw = self.get_yaw_ref_at(path_idx, path_t)
+                    ref_yaw_raw = self.get_yaw_ref_at(path_idx, path_t)
+                    ref_yaw = nearest_angle(ref_yaw_raw, yaw_anchor)
                 else:
                     ref_pt  = b
                     ref_yaw = self.state[2]
+
+                yaw_anchor = ref_yaw
 
                 v_ref_k = self.get_v_ref_at(path_idx, path_t)
 
@@ -413,7 +459,8 @@ class AckermannMPC(Node):
             # Compute Frenet frame errors for logging
             a_act, b_act = self.get_segment(self.current_idx, n)
             ref_pt_now   = a_act + self.current_t * (b_act - a_act)
-            psi_now      = self.get_yaw_ref_at(self.current_idx, self.current_t)
+            psi_now_raw  = self.get_yaw_ref_at(self.current_idx, self.current_t)
+            psi_now      = nearest_angle(psi_now_raw, self.state[2])
             dx = self.state[0] - ref_pt_now[0]
             dy = self.state[1] - ref_pt_now[1]
             e_lat = abs(-np.sin(psi_now) * dx + np.cos(psi_now) * dy)
@@ -423,7 +470,7 @@ class AckermannMPC(Node):
 
             self.get_logger().info(
                 f'Idx: {self.current_idx}/{n} | '
-                f'e_lat: {e_lat:.3f}m | e_lon: {e_lon:.3f}m | '
+                f'e_lat: {e_lat:.3f}m | e_lon: {e_lon:.3f}m | e_yaw: {np.degrees(e_yaw):.1f}° | '
                 f'v: {u[0]:.2f}/{v_ref_now:.2f} m/s | '
                 f'δ: {np.degrees(u[1]):.1f}°',
                 throttle_duration_sec=0.5

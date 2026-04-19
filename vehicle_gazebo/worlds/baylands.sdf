@@ -96,7 +96,7 @@
       </link>
     </model>
 
-    <model name="speedbumps_01">
+    <!-- <model name="speedbumps_01">
       <pose>0 0 -3 0 0 0</pose>
       <static>true</static>
 
@@ -119,7 +119,7 @@
           </geometry>
         </collision>
       </link>
-    </model>
+    </model> -->
 
     <model name="potholes_01">
       <pose>0 0 -3 0 0 0</pose>

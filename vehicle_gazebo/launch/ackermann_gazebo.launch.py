@@ -59,7 +59,10 @@ def generate_launch_description():
                 '-name', 'ackermann_vehicle',
                 '-topic', 'robot_description',
                 '-allow_renaming', 'true',
-                '-z', '0.0'])
+                '-x', '141.109',
+                '-y', '179.566',
+                '-z', '0.0',
+                '-Y', '3.14159'])
 
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
