@@ -21,6 +21,7 @@ from scipy.ndimage import gaussian_filter1d
 
 from nav_msgs.msg import Path
 from std_msgs.msg import Float64MultiArray, MultiArrayDimension
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 
 class TOPP(Node):
@@ -63,7 +64,12 @@ class TOPP(Node):
             f'at_max={self.at_max:.2f} | bt_max={self.bt_max:.2f}'
         )
 
-        self.create_subscription(Path, '/trajectory', self.path_cb, 10)
+        qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
+        self.create_subscription(Path, '/trajectory', self.path_cb, qos)
         self.pub = self.create_publisher(
             Float64MultiArray, '/trajectory_topp', 10)
 
