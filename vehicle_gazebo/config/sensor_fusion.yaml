@@ -8,27 +8,9 @@ navsat_transform_node:
     zero_altitude: false
     broadcast_utm_transform: true
     publish_filtered_gps: true
-    use_odometry_yaw: false
+    use_odometry_yaw: true
     wait_for_datum: true
     datum: [55.944831, -3.186998, 0.0]  # lat, lon, yaw
-
-# Complementary filter
-imu_complementary_filter:
-  ros__parameters:
-
-    # Magnetometer
-    use_mag: true
-
-    # Gain
-    gain_acc: 0.1
-    gain_mag: 0.1
-
-    do_bias_estimation: false
-    do_adaptive_gain: true
-
-    publish_tf: false
-    remove_gravity_vector: false
-    fixed_frame: odom
 
 # Local EKF filter
 ekf_filter_node_odom:
@@ -58,14 +40,14 @@ ekf_filter_node_odom:
         odom0_relative: false
         odom0_differential: false
 
-        imu0: /imu/data_cov
+        imu0: /imu/data
         imu0_config: [false, false, false,
                       true, true, true,
                       false, false, false,
                       true, true, true,
                       true, false, false]
         imu0_queue_size: 10
-        imu0_relative: true
+        imu0_relative: false
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true
 
@@ -107,7 +89,7 @@ ekf_filter_node_map:
         odom1_differential: false
         odom1_relative: false
 
-        imu0: /imu/data_cov
+        imu0: /imu/data
         imu0_config: [false, false, false,
                       true, true, true,
                       false, false, false,

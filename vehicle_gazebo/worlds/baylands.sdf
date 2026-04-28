@@ -33,10 +33,6 @@
       name="gz::sim::systems::Imu">
     </plugin>
     <plugin
-      filename="gz-sim-magnetometer-system"
-      name="gz::sim::systems::Magnetometer">
-    </plugin>
-    <plugin
       filename="gz-sim-navsat-system"
       name="gz::sim::systems::NavSat">
     </plugin>

@@ -13,14 +13,14 @@ class ImuCovarianceRepublisher(Node):
     def __init__(self):
         super().__init__("imu_covariance_republisher")
 
-        self.declare_parameter("input_topic", "/imu/data")
-        self.declare_parameter("output_topic", "/imu/data_cov")
+        self.declare_parameter("input_topic", "/imu/data_raw")
+        self.declare_parameter("output_topic", "/imu/data")
 
-        # Orientation covariance is not published by imu_complementary_filter.
+        # Orientation covariance is not published by imu.
         # We inject practical values for robot_localization.
         self.declare_parameter(
             "orientation_covariance_diagonal",
-            [(0.01 / 9.81) ** 2, (0.01 / 9.81) ** 2, math.radians(5.0) ** 2],
+            [(0.01 / 9.81) ** 2, (0.01 / 9.81) ** 2, math.radians(1.0) ** 2],
         )
 
         self.input_topic = str(self.get_parameter("input_topic").value)

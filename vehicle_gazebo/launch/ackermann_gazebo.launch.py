@@ -58,11 +58,7 @@ def generate_launch_description():
         arguments=[
                 '-name', 'ackermann_vehicle',
                 '-topic', 'robot_description',
-                '-allow_renaming', 'true',
-                '-x', '141.109',
-                '-y', '179.566',
-                '-z', '0.0',
-                '-Y', '3.14159'])
+                '-allow_renaming', 'true',])
 
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
@@ -100,7 +96,6 @@ def generate_launch_description():
                     '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
                     "imu@sensor_msgs/msg/Imu@gz.msgs.IMU", # IMU data
                     '/ground_truth_odom@nav_msgs/msg/Odometry[gz.msgs.Odometry', # Ground truth odometry
-                    "magnetometer@sensor_msgs/msg/MagneticField@gz.msgs.Magnetometer", # Magnetometer data
                     '/gps/fix@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat',  # GPS
                     # Segmentation camera
                     '/segmentation/colored_map@sensor_msgs/msg/Image[gz.msgs.Image', # Colored map
@@ -157,20 +152,6 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Complementary filter
-        Node(
-            package='imu_complementary_filter',
-            executable='complementary_filter_node',
-            name='imu_complementary_filter',
-            output='screen',
-            parameters=[sensor_fusion_config],
-            remappings=[
-                ('imu/data_raw', '/imu/data_raw'),
-                ('imu/mag',      '/magnetometer'),
-                ('imu/data',     '/imu/data'),
-            ]
-        ),
-
         # Republish IMU with non-zero orientation covariance for EKF/navsat
         Node(
             package='vehicle_gazebo',
@@ -189,7 +170,7 @@ def generate_launch_description():
 
         # Sensor fusion nodes (GPS and EKF)
         TimerAction(
-            period=12.0,  # Delay startup until complementary filter has stabilized
+            period=12.0,  # Delay startup
             actions=[
                 Node(
                     package='robot_localization',
@@ -216,7 +197,7 @@ def generate_launch_description():
                     name='navsat_transform_node',
                     parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],
                     remappings=[
-                        ('imu', '/imu/data_cov'),
+                        ('imu', '/imu/data'),
                         ('gps/fix', '/gps/fix'),
                         ('odometry/filtered', '/odometry/global'),
                         ('odometry/gps', '/odometry/gps'),
