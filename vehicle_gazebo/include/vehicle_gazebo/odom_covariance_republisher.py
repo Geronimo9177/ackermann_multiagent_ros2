@@ -22,21 +22,12 @@ class OdomCovarianceRepublisher(Node):
         )
         self.declare_parameter(
             "pose_covariance_diagonal",
-            [0.0025, 0.0025, 1000.0, 1000.0, 1000.0, 0.01],
+            [0.001, 0.001, 1.0, 1.0, 1.0, 0.005],
         )
 
         self.input_topic = str(self.get_parameter("input_topic").value)
         self.output_topic = str(self.get_parameter("output_topic").value)
         diag = self.get_parameter("pose_covariance_diagonal").value
-
-        if diag is None:
-            diag = [0.0025, 0.0025, 1000.0, 1000.0, 1000.0, 0.01]
-
-        if len(diag) != 6:
-            self.get_logger().warn(
-                "pose_covariance_diagonal must have 6 values; using defaults"
-            )
-            diag = [0.0025, 0.0025, 1000.0, 1000.0, 1000.0, 0.01]
 
         self.pose_covariance = self._diag_to_covariance(diag)
 

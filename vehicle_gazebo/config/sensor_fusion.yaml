@@ -8,7 +8,7 @@ navsat_transform_node:
     zero_altitude: false
     broadcast_utm_transform: true
     publish_filtered_gps: true
-    use_odometry_yaw: true
+    use_odometry_yaw: false
     wait_for_datum: true
     datum: [55.944831, -3.186998, 0.0]  # lat, lon, yaw
 
@@ -31,8 +31,8 @@ ekf_filter_node_odom:
         #vroll , vpitch, vyaw,
         #ax    , ay    , az
         odom0: /ackermann_steering_controller/odometry
-        odom0_config: [true, true, false,
-                       false, false, true,
+        odom0_config: [false, false, false,
+                       false, false, false,
                        true, false, false,
                        false, false, true,
                        false, false, false]
@@ -71,7 +71,7 @@ ekf_filter_node_map:
         #ax    , ay    , az
         odom0: /ackermann_steering_controller/odometry
         odom0_config: [false, false, false,
-                       false, false, true,
+                       false, false, false,
                        true, false, false,
                        false, false, true,
                        false, false, false]
@@ -95,6 +95,6 @@ ekf_filter_node_map:
                       false, false, false,
                       true, true, true,
                       true, false, false]
-        imu0_relative: true
+        imu0_relative: false
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true

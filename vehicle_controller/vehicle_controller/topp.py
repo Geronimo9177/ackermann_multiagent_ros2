@@ -213,7 +213,7 @@ class TOPP(Node):
         kappa_safe = np.maximum(np.abs(kappa), 1e-4)
         v = np.minimum(self.v_max, np.sqrt(self.ar_max / kappa_safe))
 
-        v[0]  = max(v[0], self.v_min)
+        v[0]  = min(v[0], self.v_min)
         v[-1] = 0.0
 
         for _ in range(2):
