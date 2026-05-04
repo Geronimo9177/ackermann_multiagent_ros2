@@ -12,6 +12,18 @@ navsat_transform_node:
     wait_for_datum: true
     datum: [55.944831, -3.186998, 0.0]  # lat, lon, yaw
 
+# Madgwick IMU filter
+imu_filter_madgwick:
+  ros__parameters:
+    use_mag: true
+    use_acc: true
+    use_gyro: true
+    gain: 0.04
+    zeta: 0.0
+    orientation_stddev: 0.05
+    publish_tf: false
+    world_frame: nwu
+
 # Local EKF filter
 ekf_filter_node_odom:
     ros__parameters:

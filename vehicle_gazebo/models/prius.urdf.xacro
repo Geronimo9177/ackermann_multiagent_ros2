@@ -360,6 +360,20 @@
         </linear_acceleration>
       </imu>
     </sensor>
+
+    <sensor name="magnetometer" type="magnetometer">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <visualize>true</visualize>
+      <topic>magnetometer</topic>
+      <enable_metrics>true</enable_metrics>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <magnetometer>
+        <x><noise type="gaussian"><mean>0.000000080</mean></noise></x>
+        <y><noise type="gaussian"><mean>0.000000080</mean></noise></y>
+        <z><noise type="gaussian"><mean>0.000000080</mean></noise></z>
+      </magnetometer>
+    </sensor>
   </gazebo>
 
   <!-- ============================================================
