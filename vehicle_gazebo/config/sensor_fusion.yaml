@@ -60,17 +60,19 @@ ekf_filter_node_odom:
                       true, false, false]
         imu0_queue_size: 10
         imu0_relative: false
-        imu0_differential: false
+        imu0_differential: true
         imu0_remove_gravitational_acceleration: true
 
 # Global EKF filter
 ekf_filter_node_map:
     ros__parameters:
-        frequency: 30.0
+        frequency: 50.0
         sensor_timeout: 0.1
         two_d_mode: false
         publish_tf: true
- 
+        smooth_lagged_data: true
+        history_length: 1.0
+
         map_frame: map             
         odom_frame: odom            
         base_link_frame: base_link 
@@ -100,6 +102,7 @@ ekf_filter_node_map:
         odom1_queue_size: 10
         odom1_differential: false
         odom1_relative: false
+        odom1_pose_rejection_threshold: 2.5
 
         imu0: /imu/data
         imu0_config: [false, false, false,
@@ -110,3 +113,4 @@ ekf_filter_node_map:
         imu0_relative: false
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true
+        imu0_pose_rejection_threshold: 3.0

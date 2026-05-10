@@ -208,6 +208,17 @@ def generate_launch_description():
                             ('odometry/gps', '/odometry/gps'),
                         ]
                     ),
+
+                    Node(
+                        package='vehicle_gazebo',
+                        executable='drift_corrector.py',
+                        name='drift_corrector',
+                        output='screen',
+                        parameters=[{
+                            'drift_threshold':  1.5,   # empieza a corregir después de 1.5m de drift
+                            'correction_alpha': 0.02,  # 2% por ciclo → corrección de 1m tarda ~1.5s
+                        }]
+                    ),
                 ],
             )
         ),
