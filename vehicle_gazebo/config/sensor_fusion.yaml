@@ -10,7 +10,7 @@ navsat_transform_node:
     publish_filtered_gps: true
     use_odometry_yaw: false
     wait_for_datum: true
-    datum: [55.944831, -3.186998, 0.0]  # lat, lon, yaw
+    datum: [43.3623, -8.4115, 0.0]  # lat, lon, yaw
 
 # Madgwick IMU filter
 imu_filter_madgwick:
@@ -18,7 +18,7 @@ imu_filter_madgwick:
     use_mag: true
     use_acc: true
     use_gyro: true
-    gain: 0.04
+    gain: 0.03
     zeta: 0.0
     orientation_stddev: 0.05
     publish_tf: false
@@ -60,13 +60,13 @@ ekf_filter_node_odom:
                       true, false, false]
         imu0_queue_size: 10
         imu0_relative: false
-        imu0_differential: true
+        imu0_differential: false
         imu0_remove_gravitational_acceleration: true
 
 # Global EKF filter
 ekf_filter_node_map:
     ros__parameters:
-        frequency: 50.0
+        frequency: 30.0
         sensor_timeout: 0.1
         two_d_mode: false
         publish_tf: true
@@ -113,4 +113,3 @@ ekf_filter_node_map:
         imu0_relative: false
         imu0_differential: false
         imu0_remove_gravitational_acceleration: true
-        imu0_pose_rejection_threshold: 3.0

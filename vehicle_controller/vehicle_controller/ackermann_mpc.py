@@ -64,24 +64,24 @@ class AckermannMPC(Node):
         self.max_steer = self.get_parameter('max_steer').value
         self.max_speed = self.get_parameter('max_speed').value
 
-        # Internal state — siempre del EKF local (suave)
+        # Internal state (from the local EKF)
         self.state         = np.zeros(3)
         self.prev_u        = np.zeros(2)
         self.last_solution = None
         self.yaw_cont      = None
 
-        # Offset de drift: diferencia entre fused y local en el frame odom
-        # Se aplica al path para que el MPC vea los waypoints corregidos
-        # sin que el estado del MPC (self.state) cambie nunca
+        # Drift offset: difference between fused and local in the odom frame
+        # Applied to the path so the MPC sees corrected waypoints
+        # without  modifying the MPC state (self.state)
         self.drift_offset = np.zeros(2)   # [dx, dy]
 
         # Arrays from the MultiArray message (TOPP node)
-        self.xy_arr  = None   # (N, 2)  — en frame map
+        self.xy_arr  = None   # (N, 2) (map frame)
         self.yaw_arr = None   # (N,)
         self.v_arr   = None   # (N,)
         self.s_arr   = None   # (N,)
 
-        # Path corregido por drift — en frame odom
+        # Path corrected by drift (odom frame)
         self.xy_arr_odom = None
 
         self.odom_received  = False
@@ -207,7 +207,7 @@ class AckermannMPC(Node):
     # ── Callbacks ─────────────────────────────────────────────────────
 
     def odom_cb(self, msg):
-        """EKF local — estado del vehículo para el MPC. Nunca cambia."""
+        """Local EKF state used by the MPC."""
         p           = msg.pose.pose.position
         yaw_wrapped = _yaw_from_pose(msg.pose)
 
@@ -224,28 +224,22 @@ class AckermannMPC(Node):
             self.odom_received = True
 
     def fused_cb(self, msg):
-        """DriftCorrector output — solo actualiza drift_offset.
-        
-        drift_offset = fused - local
-        Se resta al path para que el MPC vea waypoints en frame odom
-        corregidos por el drift acumulado.
-        """
+        """OdometryFusion output updates drift_offset only. """
         if not self.odom_received:
             return
 
         fx = msg.pose.pose.position.x
         fy = msg.pose.pose.position.y
 
-        # Offset entre la posición fusionada y la posición local actual
+        # Offset between the fused position and the current local position
         new_offset = np.array([fx - self.state[0],
                                 fy - self.state[1]])
 
-        # Suavizado del offset para evitar saltos bruscos en el path
-        # (aunque fused ya es suave, este filtro añade una capa extra)
+        # Smooth the offset to avoid abrupt path jumps
         alpha = 0.1
         self.drift_offset = (1.0 - alpha) * self.drift_offset + alpha * new_offset
 
-        # Recalcula el path en frame odom con el nuevo offset
+        # Recompute the path in the odom frame with the new offset
         if self.xy_arr is not None:
             self._reproject_path()
 
@@ -257,12 +251,12 @@ class AckermannMPC(Node):
             self.fused_received = True
 
     def trajectory_cb(self, msg: Float64MultiArray):
-        """Recibe el path en frame map y lo convierte a frame odom."""
+        """Receive the path in the map frame and project it to odom frame."""
         n      = msg.layout.dim[0].size
         fields = msg.layout.dim[1].size
 
         data = np.array(msg.data).reshape(n, fields)
-        self.xy_arr  = data[:, 0:2]   # frame map
+        self.xy_arr  = data[:, 0:2]   # map frame
         self.yaw_arr = data[:, 2]
         self.v_arr   = data[:, 3]
         self.s_arr   = data[:, 4]
@@ -272,7 +266,7 @@ class AckermannMPC(Node):
         self.route_completed = False
         self.last_solution   = None
 
-        # Proyecta el path al frame odom usando el drift_offset actual
+        # Project the path to the odom frame using the current drift_offset
         self._reproject_path()
 
         if not self.path_received:
@@ -283,23 +277,23 @@ class AckermannMPC(Node):
             self.path_received = True
 
     def _reproject_path(self):
-        """Transforma el path de frame map a frame odom restando drift_offset.
+        """Transform the path from map frame to odom frame by subtracting drift_offset.
         
         frame_odom = frame_map - drift_offset
         
-        El drift_offset es la diferencia acumulada entre la posición fusionada
-        (que incluye corrección GPS) y la posición local (puro odom/IMU).
+        drift_offset is the accumulated difference between the fused position
+        (which includes GPS correction) and the local position (pure odom/IMU).
         """
         if self.xy_arr is None:
             return
-        # El path en odom es el path en map menos el offset de drift
+        # The path in odom is the map path minus the drift offset
         self.xy_arr_odom = self.xy_arr - self.drift_offset[np.newaxis, :]
 
     # ── Geometry helpers ──────────────────────────────────────────────
 
     def get_segment(self, i, n):
         idx_a = min(i, n - 2)
-        # Usa el path proyectado en odom
+        # Use the path projected into odom
         return self.xy_arr_odom[idx_a], self.xy_arr_odom[idx_a + 1]
 
     def get_v_ref_at(self, idx, t):
@@ -399,8 +393,8 @@ class AckermannMPC(Node):
             float(v_cmd),   float(v_ref),   float(steer),
             float(self.current_idx if self.current_idx is not None else -1),
             float(solve_ms),
-            float(self.drift_offset[0]),   # extra: offset x para debug
-            float(self.drift_offset[1]),   # extra: offset y para debug
+            float(self.drift_offset[0]),   # extra: x offset for debug
+            float(self.drift_offset[1]),   # extra: y offset for debug
         ]
         self.debug_pub.publish(msg)
 
@@ -490,7 +484,7 @@ class AckermannMPC(Node):
             u              = opt[3 * (self.N + 1) : 3 * (self.N + 1) + 2]
             self.prev_u    = u
 
-            # Logging en frame odom
+            # Logging in the odom frame
             a_act, b_act = self.get_segment(self.current_idx, n)
             ref_pt_now   = a_act + self.current_t * (b_act - a_act)
             psi_now_raw  = self.get_yaw_ref_at(self.current_idx, self.current_t)

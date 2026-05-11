@@ -211,8 +211,8 @@ def generate_launch_description():
 
                     Node(
                         package='vehicle_gazebo',
-                        executable='drift_corrector.py',
-                        name='drift_corrector',
+                        executable='odometry_fusion.py',
+                        name='odometry_fusion',
                         output='screen',
                         parameters=[{
                             'drift_threshold':  1.5,   # empieza a corregir después de 1.5m de drift
