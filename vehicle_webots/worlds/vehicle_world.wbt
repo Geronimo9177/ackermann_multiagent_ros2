@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../models/tesla/TeslaModel3.proto"
+
+WorldInfo {
+  info ["Tesla vehicle simulation - Webots"]
+  title "Vehicle World"
+  coordinateSystem "ENU"
+  basicTimeStep 1
+}
+
+Viewpoint {
+  orientation -0.5 0.5 0.5 2.094
+  position 0 8 4
+}
+
+TexturedBackground {
+}
+
+TexturedBackgroundLight {
+}
+
+RectangleArena {
+  floorSize 50 50
+  floorTileSize 1 1
+  wallHeight 0.5
+}
+
+DEF Tesla TeslaModel3 {
+  translation 0 0 0.4
+  rotation 0 0 1 0
+  name "Tesla"
+  controller "<extern>"
+  window "<none>"
+  supervisor TRUE
+}
+
+
+Robot {
+  name "Ros2Supervisor"
+  controller "<extern>"
+  supervisor TRUE
+} 
