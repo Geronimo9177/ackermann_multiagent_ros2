@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<robot name="tesla">
+    <webots>
+        <plugin type="vehicle_webots.car_driver.CarDriver"/>
+    </webots>
+</robot>

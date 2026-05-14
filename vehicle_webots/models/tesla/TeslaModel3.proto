@@ -16,10 +16,6 @@ EXTERNPROTO "TeslaModel3Windows.proto"
 EXTERNPROTO "../abstract/Car.proto"
 EXTERNPROTO "../abstract/VehicleLights.proto"
 
-
-
-
-
 PROTO TeslaModel3 [
   field     SFVec3f    translation       0 0 0.4                                                 # Is `Car.translation`.
   field     SFRotation rotation          0 0 1 0                                                 # Is `Car.rotation`.

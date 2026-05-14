@@ -9,7 +9,7 @@ WorldInfo {
   info ["Tesla vehicle simulation - Webots"]
   title "Vehicle World"
   coordinateSystem "ENU"
-  basicTimeStep 1
+  basicTimeStep 2
 }
 
 Viewpoint {
@@ -29,18 +29,10 @@ RectangleArena {
   wallHeight 0.5
 }
 
-DEF Tesla TeslaModel3 {
+DEF tesla TeslaModel3 {
   translation 0 0 0.4
   rotation 0 0 1 0
-  name "Tesla"
+  name "tesla"
   controller "<extern>"
   window "<none>"
-  supervisor TRUE
 }
-
-
-Robot {
-  name "Ros2Supervisor"
-  controller "<extern>"
-  supervisor TRUE
-} 
