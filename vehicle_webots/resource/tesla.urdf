@@ -1,7 +1,19 @@
 <?xml version="1.0"?>
+<robot name="Tesla">
+  <link name="base_link"/>
 
-<robot name="tesla">
-    <webots>
-        <plugin type="vehicle_webots.car_driver.CarDriver"/>
-    </webots>
+  <webots>
+    <!-- Cámara -->
+    <device reference="camera" type="Camera">
+      <ros>
+        <topicName>/camera/image_raw</topicName>
+        <alwaysOn>true</alwaysOn>
+        <updateRate>30</updateRate>
+      </ros>
+    </device>
+
+    <!-- Plugin del driver Python -->
+    <plugin type="vehicle_webots.car_driver.CarDriver"/>
+  </webots>
+
 </robot>

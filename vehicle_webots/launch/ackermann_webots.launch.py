@@ -12,6 +12,7 @@ def generate_launch_description():
 
     webots = WebotsLauncher(
         world=os.path.join(package_dir, 'worlds', 'vehicle_world.wbt'),
+        ros2_supervisor=True
     )
 
     vehicle_driver = WebotsController(
@@ -23,6 +24,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         webots,
+        webots._supervisor,
         vehicle_driver,
         launch.actions.RegisterEventHandler(
             event_handler=OnProcessExit(
