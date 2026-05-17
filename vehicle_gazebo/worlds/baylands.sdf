@@ -95,7 +95,22 @@
       </link>
     </model>
 
-        <model name="curbs_01">
+    <model name="leaves_metal_01">
+      <pose>0 0 -2.4 0 0 0</pose>
+      <static>true</static>
+
+      <link name="body_leaves_metal">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>media/leaves_metal.obj</uri>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <model name="curbs_01">
       <pose>0 0 -2.4 0 0 0</pose>
       <static>true</static>
 

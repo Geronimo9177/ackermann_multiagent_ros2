@@ -25,7 +25,7 @@ def generate_launch_description():
     ])
 
     webots = WebotsLauncher(
-        world=os.path.join(package_dir, 'worlds', 'vehicle_world.wbt'),
+        world=os.path.join(package_dir, 'worlds', 'baylands.wbt'),
         ros2_supervisor=True
     )
 

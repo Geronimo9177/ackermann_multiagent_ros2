@@ -1,0 +1,88 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../models/tesla/TeslaModel3.proto"
+
+WorldInfo {
+  info ["Tesla vehicle simulation"]
+  title "ROS2 simulation of the Tesla car"
+  ERP 0.6
+  basicTimeStep 10
+  coordinateSystem "ENU"
+  gpsCoordinateSystem "WGS84"
+  gpsReference 43.3623 -8.4115 30
+  lineScale 1
+  contactProperties [
+    ContactProperties {
+      coulombFriction [
+        8
+      ]
+      softCFM 1e-05
+      bumpSound ""
+      rollSound ""
+      slideSound ""
+    }
+    ContactProperties {
+      material2 "TeslaModel3Wheel"
+      coulombFriction [
+        8
+      ]
+      softCFM 1e-05
+      bumpSound ""
+      rollSound ""
+      slideSound ""
+    }
+  ]
+}
+
+Viewpoint {
+  orientation -0.5 0.5 0.5 2.094
+  position 0 8 4
+}
+
+TexturedBackground {
+}
+
+TexturedBackgroundLight {
+}
+
+RectangleArena {
+  floorSize 50 50
+  floorTileSize 1 1
+  wallHeight 0.5
+}
+
+DEF tesla TeslaModel3 {
+  translation 0 0 0.4
+  rotation 0 0 1 0
+  name "tesla"
+  controller "<extern>"
+  window "<none>"
+  supervisor TRUE
+
+  sensorsSlotFront [
+    Camera {
+          name "camera"
+          translation -2.12 0 0.93
+          fieldOfView 1
+          width 360
+          height 240
+    }
+  ]
+
+  sensorsSlotCenter [
+    InertialUnit { name "imu" }
+    Gyro { name "gyro" }
+    Accelerometer { name "accel" }
+    Compass { name "mag" }
+  ]
+
+  sensorsSlotTop [
+    GPS { 
+      name "gps" 
+      accuracy 1.5
+    }
+  ]
+}
