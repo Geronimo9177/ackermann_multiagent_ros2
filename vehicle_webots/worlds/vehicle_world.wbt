@@ -82,7 +82,7 @@ DEF tesla TeslaModel3 {
   sensorsSlotTop [
     GPS { 
       name "gps" 
-      accuracy 2
+      accuracy 1.5
     }
   ]
 }

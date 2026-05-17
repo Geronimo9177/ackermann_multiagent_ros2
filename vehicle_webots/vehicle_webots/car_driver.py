@@ -30,7 +30,7 @@ ACC_BIAS_MEAN  = 0.0004
 ACC_BIAS_STD   = 0.0001
 
 # Ruido GPS 
-GPS_STDDEV     = 0.00002
+GPS_STDDEV     = 1.5
 
 # Ruido Magnetómetro 
 MAG_STDDEV     = 8e-8       # Tesla
@@ -383,6 +383,22 @@ class CarDriver:
         odom.pose.pose.orientation.w = math.cos(self.__theta / 2.0)
         odom.twist.twist.linear.x    = v_bx
         odom.twist.twist.angular.z   = omega_bz
+
+        # Covarianza
+        odom.pose.covariance[0]  = 0.001   # x
+        odom.pose.covariance[7]  = 0.001   # y
+        odom.pose.covariance[14] = 1.0     # z  
+        odom.pose.covariance[21] = 1.0     # roll 
+        odom.pose.covariance[28] = 1.0     # pitch
+        odom.pose.covariance[35] = 0.005   # yaw
+
+        odom.twist.covariance[0]  = 0.001  # vx
+        odom.twist.covariance[7]  = 1.0    # vy 
+        odom.twist.covariance[14] = 1.0    # vz 
+        odom.twist.covariance[21] = 1.0    # vroll 
+        odom.twist.covariance[28] = 1.0    # vpitch
+        odom.twist.covariance[35] = 0.02   # vyaw
+
         self.__odom_pub.publish(odom)
 
     def step(self):
