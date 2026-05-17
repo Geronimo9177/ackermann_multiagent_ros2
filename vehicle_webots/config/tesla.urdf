@@ -13,7 +13,7 @@
     </device>
 
     <!-- Plugin del driver Python -->
-    <plugin type="vehicle_webots.car_driver.CarDriver"/>
+    <plugin type="vehicle_webots::CarDriver"/>
   </webots>
 
 </robot>

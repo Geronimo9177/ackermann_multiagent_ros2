@@ -16,10 +16,12 @@ def generate_launch_description():
     pkg = 'vehicle_webots'
     package_dir = get_package_share_directory(pkg)
 
-    robot_description_path = os.path.join(package_dir, 'resource', 'tesla.urdf')
+    robot_description_path = PathJoinSubstitution([
+        FindPackageShare('vehicle_webots'), 'config', 'tesla.urdf'
+    ])
 
     sensor_fusion_config = PathJoinSubstitution([
-        FindPackageShare(pkg), 'config', 'sensor_fusion.yaml'
+        FindPackageShare('vehicle_webots'), 'config', 'sensor_fusion.yaml'
     ])
 
     webots = WebotsLauncher(
