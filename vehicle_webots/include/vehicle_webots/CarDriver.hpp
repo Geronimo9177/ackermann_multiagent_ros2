@@ -16,6 +16,7 @@
 #include <webots/compass.h>
 #include <webots/gps.h>
 #include <webots/position_sensor.h>
+#include <webots/camera.h>
 #include <webots/robot.h>
 #include <webots/vehicle/driver.h>
 
@@ -28,6 +29,8 @@
 #include "sensor_msgs/msg/magnetic_field.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include "tf2_ros/transform_broadcaster.h"
 
 namespace vehicle_webots {
@@ -49,6 +52,7 @@ private:
   WbDeviceTag accel_;
   WbDeviceTag mag_;
   WbDeviceTag gps_;
+  WbDeviceTag camera_;
 
   WbNodeRef self_node_;
 
@@ -58,6 +62,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr        imu_pub_;
   rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_pub_;
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr  gps_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr      seg_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr js_pub_;
 
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_vel_sub_;
@@ -75,6 +80,12 @@ private:
   double last_imu_pub_{0.0};
   double last_mag_pub_{0.0};
   double last_gps_pub_{0.0};
+  double last_cam_pub_{0.0};
+
+  // ── Camera info ───────────────────────────────────────────────
+  int cam_width_{0};
+  int cam_height_{0};
+  int cam_pixels_{0};  // cam_width_ * cam_height_
 
   // ── IMU bias (initialized once) ──────────────────────────────
   std::array<double, 3> gyro_bias_{};
@@ -91,6 +102,7 @@ private:
   void publishImu();
   void publishMag();
   void publishGps();
+  void publishCamera();
   void publishGroundTruth();
   std::array<double, 4> publishJointStates(double dt);
   void updateOdometry(double lv, double rv,

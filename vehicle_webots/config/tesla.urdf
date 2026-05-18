@@ -3,16 +3,7 @@
   <link name="base_link"/>
 
   <webots>
-    <!-- Cámara -->
-    <device reference="camera" type="Camera">
-      <ros>
-        <topicName>/camera/image_raw</topicName>
-        <alwaysOn>true</alwaysOn>
-        <updateRate>30</updateRate>
-      </ros>
-    </device>
-
-    <!-- Plugin del driver Python -->
+    <!-- Plugin -->
     <plugin type="vehicle_webots::CarDriver"/>
   </webots>
 

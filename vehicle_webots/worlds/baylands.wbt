@@ -52,7 +52,7 @@ TexturedBackgroundLight {
 
 # --- BASE ---
 Solid {
-  translation 0 0 -2.4
+  translation 0 0 -2.45
   name "baylands"
 
   children [
@@ -71,7 +71,7 @@ Solid {
 
 # --- LEAVES / METAL (solo visual) ---
 Solid {
-  translation 0 0 -2.4
+  translation 0 0 -2.45
   name "leaves_metal"
 
   children [
@@ -87,8 +87,9 @@ Solid {
 
 # --- CURBS ---
 Solid {
-  translation 0 0 -2.4
+  translation 0 0 -2.45
   name "curbs"
+  recognitionColors [ 0.25 0 0 ]
 
   children [
     CadShape {
@@ -105,8 +106,9 @@ Solid {
 
 # --- POTHOLES ---
 Solid {
-  translation 0 0 -2.4
+  translation 0 0 -2.45
   name "potholes"
+  recognitionColors [ 0.5 0 0 ]
 
   children [
     CadShape {
@@ -123,8 +125,9 @@ Solid {
 
 # --- SPEEDBUMPS ---
 Solid {
-  translation 0 0 -2.4
+  translation 0 0 -2.45
   name "speedbumps"
+  recognitionColors [ 1 0 0 ]
 
   children [
     CadShape {
@@ -141,7 +144,7 @@ Solid {
 
 
 DEF tesla TeslaModel3 {
-  translation 0 0 0.4
+  translation 0 0 0.0
   rotation 0 0 1 0
   name "tesla"
   controller "<extern>"
@@ -155,6 +158,11 @@ DEF tesla TeslaModel3 {
           fieldOfView 1
           width 360
           height 240
+          
+          recognition Recognition {
+            maxRange 30
+            segmentation TRUE
+          }
     }
   ]
 

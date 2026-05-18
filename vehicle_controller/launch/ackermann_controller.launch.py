@@ -1,12 +1,19 @@
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+
     run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
+
+    vehicle = LaunchConfiguration('vehicle')
 
     declare_run_debug_visualizer = DeclareLaunchArgument(
         'run_debug_visualizer',
@@ -14,27 +21,37 @@ def generate_launch_description():
         description='Run mpc_debug_visualizer when true',
     )
 
+    declare_vehicle = DeclareLaunchArgument(
+        'vehicle',
+        default_value='toyota',
+        description='Vehicle model: toyota or tesla'
+    )
+
+    vehicle_config = PathJoinSubstitution([
+        FindPackageShare('vehicle_controller'), 'config', [vehicle, '.yaml']
+    ])
+
     return LaunchDescription([
 
         declare_run_debug_visualizer,
+        declare_vehicle,
 
-        # Ackermann MPC node
         Node(
             package='vehicle_controller',
             executable='ackermann_mpc',
             name='ackermann_mpc',
             output='screen',
+            parameters=[vehicle_config],
         ),
 
-        # TOPP (Time-Optimal Path Parametrization) node
         Node(
             package='vehicle_controller',
             executable='topp',
             name='topp',
             output='screen',
+            parameters=[vehicle_config],
         ),
 
-        # MPC Debug Visualizer
         Node(
             package='vehicle_controller',
             executable='mpc_debug_visualizer',

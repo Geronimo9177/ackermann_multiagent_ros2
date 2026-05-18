@@ -17,6 +17,7 @@ static constexpr double MAX_STEERING = 0.5;
 static constexpr double IMU_PERIOD = 0.01;    // 100 Hz
 static constexpr double MAG_PERIOD = 0.02;    // 50 Hz
 static constexpr double GPS_PERIOD = 0.1;     // 10 Hz
+static constexpr double CAM_PERIOD = 0.03;    // 30 Hz
 
 // ── IMU noise ─────────────────────────────────────────────────────
 static constexpr double GYR_STDDEV    = 0.000864;
@@ -63,7 +64,18 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     wb_compass_enable(mag_,         static_cast<int>(MAG_PERIOD * 1000));
     wb_gps_enable(gps_,             static_cast<int>(GPS_PERIOD * 1000));
 
+    camera_ = wb_robot_get_device("camera");
+
+    wb_camera_enable(camera_,             static_cast<int>(CAM_PERIOD * 1000));
+    wb_camera_recognition_enable(camera_, static_cast<int>(CAM_PERIOD * 1000));
+    wb_camera_recognition_enable_segmentation(camera_);
+
     self_node_ = wb_supervisor_node_get_self();
+
+    // ── Camera info ───────────────────────────────────────────────
+    cam_width_  = wb_camera_get_width(camera_);
+    cam_height_ = wb_camera_get_height(camera_);
+    cam_pixels_ = cam_width_ * cam_height_;
 
     // ── RNG & bias ────────────────────────────────────────────────
     rng_.seed(std::random_device{}());
@@ -83,6 +95,7 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     imu_pub_  = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data_raw", 10);
     mag_pub_  = node->create_publisher<sensor_msgs::msg::MagneticField>("/magnetometer", 10);
     gps_pub_  = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
+    seg_pub_  = node->create_publisher<sensor_msgs::msg::Image>("/camera/segmentation", 10);
     js_pub_   = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node);
@@ -104,8 +117,6 @@ void CarDriver::cmdVelCallback(
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
 
-    target_speed_ = v;
-
     double phi = 0.0;
     if (std::abs(v) > 0.01) {
         phi = -std::atan2(WHEELBASE * omega, v);
@@ -113,7 +124,7 @@ void CarDriver::cmdVelCallback(
     }
 
     target_steer_ = std::clamp(phi, -MAX_STEERING, MAX_STEERING);
-    wbu_driver_set_cruising_speed(target_speed_);
+    wbu_driver_set_cruising_speed(v * 3.6);  // m/s to km/h
     wbu_driver_set_steering_angle(target_steer_);
 }
 
@@ -194,6 +205,30 @@ void CarDriver::publishGps()
     sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN;
 
   gps_pub_->publish(msg);
+}
+
+// ─────────────────────────────────────────────────────────────────
+void CarDriver::publishCamera()
+{
+  auto now = node_->get_clock()->now();
+
+  const unsigned char *seg = wb_camera_recognition_get_segmentation_image(camera_);
+  if (!seg) return;
+
+  sensor_msgs::msg::Image msg;
+  msg.header.stamp    = node_->get_clock()->now();
+  msg.header.frame_id = "camera_link";
+  msg.width           = cam_width_;
+  msg.height          = cam_height_;
+  msg.encoding        = "mono8";
+  msg.step            = cam_width_;
+  msg.data.resize(cam_pixels_);
+
+  for (int i = 0; i < cam_pixels_; ++i) {
+    msg.data[i] = seg[i * 4 + 2];
+  }
+
+  seg_pub_->publish(msg);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -369,6 +404,10 @@ void CarDriver::step()
   if (current_time - last_gps_pub_ >= GPS_PERIOD) {
     publishGps();
     last_gps_pub_ = current_time;
+  }
+  if (current_time - last_cam_pub_ >= CAM_PERIOD) {
+    publishCamera();
+    last_cam_pub_ = current_time;
   }
 
   publishGroundTruth();

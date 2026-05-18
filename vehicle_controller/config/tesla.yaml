@@ -1,0 +1,16 @@
+ackermann_mpc:
+  ros__parameters:
+    wheelbase: 2.94
+    max_steer: 0.5
+    max_speed: 8.0
+
+topp:
+  ros__parameters:
+    v_max: 8.0
+    at_max: 2.5
+    bt_max: 5.0
+    mu: 0.9
+    lat_usage: 0.6
+    max_steer: 0.5
+    wheelbase: 2.94
+    v_min: 0.5

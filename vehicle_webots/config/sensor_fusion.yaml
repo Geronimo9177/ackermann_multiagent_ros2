@@ -18,7 +18,7 @@ imu_filter_madgwick:
     use_mag: true
     use_acc: true
     use_gyro: true
-    gain: 0.03
+    gain: 0.041
     zeta: 0.0
     orientation_stddev: 0.05
     publish_tf: false

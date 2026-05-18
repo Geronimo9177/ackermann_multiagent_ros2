@@ -57,6 +57,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  include/vehicle_webots/odometry_fusion.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(FILES vehicle_webots_plugin.xml
   DESTINATION share/${PROJECT_NAME}
 )

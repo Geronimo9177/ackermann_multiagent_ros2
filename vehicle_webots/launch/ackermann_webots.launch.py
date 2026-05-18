@@ -7,7 +7,7 @@ from webots_ros2_driver.webots_launcher import WebotsLauncher
 from webots_ros2_driver.webots_controller import WebotsController
 from webots_ros2_driver.wait_for_controller_connection import WaitForControllerConnection
 from launch.event_handlers import OnProcessExit
-from launch.actions import RegisterEventHandler
+from launch.actions import RegisterEventHandler, TimerAction
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
@@ -17,11 +17,11 @@ def generate_launch_description():
     package_dir = get_package_share_directory(pkg)
 
     robot_description_path = PathJoinSubstitution([
-        FindPackageShare('vehicle_webots'), 'config', 'tesla.urdf'
+        FindPackageShare(pkg), 'config', 'tesla.urdf'
     ])
 
     sensor_fusion_config = PathJoinSubstitution([
-        FindPackageShare('vehicle_webots'), 'config', 'sensor_fusion.yaml'
+        FindPackageShare(pkg), 'config', 'sensor_fusion.yaml'
     ])
 
     webots = WebotsLauncher(
@@ -93,15 +93,32 @@ def generate_launch_description():
         ]
     )
 
+    odom_fusion = Node(
+        package='vehicle_webots',
+        executable='odometry_fusion.py',
+        name='odometry_fusion',
+        output='screen',
+        parameters=[{
+            'drift_threshold': 1.5,
+            'correction_alpha': 0.02,
+        }]
+    )
+
     # Arrancar fusión sensorial cuando el driver esté listo
     waiting_nodes = WaitForControllerConnection(
         target_driver=vehicle_driver,
         nodes_to_start=[
-            gps_tf,
-            imu_filter,
-            ekf_local,
-            ekf_global,
-            navsat,
+            TimerAction(
+                period=2.0, 
+                actions=[
+                    gps_tf,
+                    imu_filter,
+                    ekf_local,
+                    ekf_global,
+                    navsat,
+                    odom_fusion,
+                ]
+            )
         ]
     )
 
