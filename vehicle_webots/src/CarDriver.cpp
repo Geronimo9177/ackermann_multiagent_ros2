@@ -6,6 +6,11 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 
+#include <chrono>
+#include <thread>
+#include "std_msgs/msg/header.hpp"
+#include "std_msgs/msg/bool.hpp"
+
 // ── Vehicle constants ─────────────────────────────────────────────
 static constexpr double WHEELBASE    = 2.94;
 static constexpr double TRACK_REAR   = 1.72;
@@ -89,6 +94,35 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     acc_noise_ = std::normal_distribution<double>(0.0, ACC_STDDEV);
     mag_noise_ = std::normal_distribution<double>(0.0, MAG_STDDEV);
 
+    // ── RL ────────────────────────────────────────────────────────
+    training_mode_ = node->declare_parameter("training_mode", false);
+
+    rl_trigger_pub_ = node->create_publisher<std_msgs::msg::Header>(
+        "/rl/trigger", 1);
+
+    start_sub_ = node->create_subscription<std_msgs::msg::Bool>(
+    "/rl/start", 1,
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {
+        if (msg->data && !system_ready_) {
+            system_ready_ = true;
+            RCLCPP_INFO(node_->get_logger(), "RL start received, activating sync");
+            if (training_mode_) {
+                wb_supervisor_simulation_set_mode(
+                    WB_SUPERVISOR_SIMULATION_MODE_FAST);
+            }
+        }
+    });
+
+    reset_sub_ = node->create_subscription<std_msgs::msg::Bool>(
+    "/rl/reset", 1,
+    [this](const std_msgs::msg::Bool::SharedPtr) {
+        system_ready_ = false;   // vuelve a tiempo real hasta el próximo /rl/start
+        waiting_cmd_  = false;
+        last_rl_trigger_ = -1.0;
+        wb_supervisor_simulation_reset();
+        RCLCPP_INFO(node_->get_logger(), "Simulation reset");
+    });
+
     // ── Publishers ────────────────────────────────────────────────
     odom_pub_ = node->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
     gt_pub_   = node->create_publisher<nav_msgs::msg::Odometry>("/ground_truth_odom", 10);
@@ -116,8 +150,10 @@ void CarDriver::cmdVelCallback(
 {
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
-
     double phi = 0.0;
+    int64_t stamp_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
+    last_cmd_stamp_ns_ = stamp_ns;
+
     if (std::abs(v) > 0.01) {
         phi = -std::atan2(WHEELBASE * omega, v);
         if (v < 0.0) phi = -phi;
@@ -126,6 +162,12 @@ void CarDriver::cmdVelCallback(
     target_steer_ = std::clamp(phi, -MAX_STEERING, MAX_STEERING);
     wbu_driver_set_cruising_speed(v * 3.6);  // m/s to km/h
     wbu_driver_set_steering_angle(target_steer_);
+
+    if (training_mode_ && waiting_cmd_ && stamp_ns > trigger_stamp_ns_) {
+        // Llegó un cmd_vel nuevo posterior al trigger → reanudar
+        waiting_cmd_ = false;
+        wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -411,10 +453,49 @@ void CarDriver::step()
   }
 
   publishGroundTruth();
+  if (!system_ready_) return;
+  // ── RL sync: trigger al MPC cada 50ms de simulación ──────────────
+  if (last_rl_trigger_ < 0.0) {
+      last_rl_trigger_ = current_time;
+  }
+
+  if (!waiting_cmd_ && (current_time - last_rl_trigger_ >= RL_PERIOD)) {
+      last_rl_trigger_ = current_time;
+
+      // Publicar trigger
+      std_msgs::msg::Header trig;
+      trig.stamp    = node_->get_clock()->now();
+      trig.frame_id = std::to_string(current_time);  // sim time para debug
+      rl_trigger_pub_->publish(trig);
+
+      trigger_stamp_ns_ = rclcpp::Time(trig.stamp).nanoseconds();
+      waiting_cmd_      = true;
+
+      if (training_mode_) {
+          wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
+
+          // Spin hasta recibir el cmd_vel nuevo o timeout de seguridad
+          auto deadline = std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(200);  // 200ms real máximo
+
+          while (waiting_cmd_ && std::chrono::steady_clock::now() < deadline) {
+              rclcpp::spin_some(node_->get_node_base_interface());
+              std::this_thread::sleep_for(std::chrono::microseconds(200));
+          }
+
+          if (waiting_cmd_) {
+              // Timeout: MPC no respondió, reanudar de todas formas
+              waiting_cmd_ = false;
+              RCLCPP_WARN(node_->get_logger(),
+                  "MPC timeout, resuming without new command");
+              wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
+          }
+          // Si no hubo timeout, rlCmdCallback ya reanudó
+      }
+    // En validación: no pausar, seguir corriendo en tiempo real
+  }
 }
-
-}  // namespace vehicle_webots
-
+} // namespace vehicle_webots
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(vehicle_webots::CarDriver,
                        webots_ros2_driver::PluginInterface)

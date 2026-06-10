@@ -7,12 +7,21 @@ from webots_ros2_driver.webots_launcher import WebotsLauncher
 from webots_ros2_driver.webots_controller import WebotsController
 from webots_ros2_driver.wait_for_controller_connection import WaitForControllerConnection
 from launch.event_handlers import OnProcessExit
-from launch.actions import RegisterEventHandler, TimerAction
-from launch.substitutions import PathJoinSubstitution
+from launch.actions import RegisterEventHandler, TimerAction, DeclareLaunchArgument
+from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+
+    training_mode = LaunchConfiguration('training_mode')
+
+    declare_training_mode = DeclareLaunchArgument(
+        'training_mode',
+        default_value='false',
+        description='true = FAST + pause cada 50ms | false = tiempo real sin pausa'
+    )
+
     pkg = 'vehicle_webots'
     package_dir = get_package_share_directory(pkg)
 
@@ -33,6 +42,7 @@ def generate_launch_description():
         robot_name='tesla',
         parameters=[
             {'robot_description': robot_description_path},
+            {'training_mode': training_mode},
         ]
     )
 
@@ -123,6 +133,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        declare_training_mode,
         webots,
         webots._supervisor,
         vehicle_driver,

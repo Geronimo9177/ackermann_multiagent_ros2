@@ -33,6 +33,9 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include "tf2_ros/transform_broadcaster.h"
 
+#include "std_msgs/msg/header.hpp"
+#include "std_msgs/msg/bool.hpp"
+
 namespace vehicle_webots {
 
 class CarDriver : public webots_ros2_driver::PluginInterface {
@@ -96,6 +99,23 @@ private:
   std::normal_distribution<double> gyr_noise_;
   std::normal_distribution<double> acc_noise_;
   std::normal_distribution<double> mag_noise_;
+
+  // ── RL sync ──────────────────────────────────────────────────────
+  static constexpr double RL_PERIOD = 0.05;  // 50ms de simulación
+
+  bool   system_ready_{false};
+  bool   training_mode_{false};
+  double last_rl_trigger_{-1.0};
+  double t_trigger_{-1.0};          // sim time cuando se publicó el trigger
+  bool   waiting_cmd_{false};
+  
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   start_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   reset_sub_;
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr    rl_trigger_pub_;
+
+  // Stamp del último /cmd_vel recibido (nanosegundos ROS)
+  int64_t last_cmd_stamp_ns_{0};
+  int64_t trigger_stamp_ns_{0};
 
   // ── Methods ──────────────────────────────────────────────────
   void cmdVelCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);

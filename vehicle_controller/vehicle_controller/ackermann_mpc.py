@@ -12,6 +12,7 @@ from geometry_msgs.msg import TwistStamped, PoseStamped
 from std_msgs.msg import Float64MultiArray
 from tf_transformations import quaternion_matrix
 
+from std_msgs.msg import Header
 
 # Orthogonal projection onto a line segment
 def get_projection(p, a, b):
@@ -117,8 +118,12 @@ class AckermannMPC(Node):
         self.setup_mpc()
         self.get_logger().info('MPC solver ready!')
 
-        self.create_timer(self.dt, self.control_loop)
+        self.trigger_sub = self.create_subscription(
+            Header, '/rl/trigger', self._trigger_cb, 1)
         self.create_timer(2.0,     self.debug_status)
+
+    def _trigger_cb(self, msg: Header):
+        self.control_loop()
 
     def debug_status(self):
         self.get_logger().info(
