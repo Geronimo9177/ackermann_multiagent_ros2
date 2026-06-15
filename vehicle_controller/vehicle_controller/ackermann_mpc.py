@@ -52,17 +52,19 @@ class AckermannMPC(Node):
         super().__init__('ackermann_mpc')
 
         # MPC parameters
+        self.declare_parameter('use_ground_truth', False)
         self.declare_parameter('dt', 0.05)
         self.declare_parameter('N', 20)
         self.declare_parameter('wheelbase', 2.55)
         self.declare_parameter('max_steer', 0.6458)
         self.declare_parameter('max_speed', 8.0)
 
-        self.dt        = self.get_parameter('dt').value
-        self.N         = self.get_parameter('N').value
-        self.L         = self.get_parameter('wheelbase').value
-        self.max_steer = self.get_parameter('max_steer').value
-        self.max_speed = self.get_parameter('max_speed').value
+        self.use_ground_truth = self.get_parameter('use_ground_truth').value
+        self.dt               = self.get_parameter('dt').value
+        self.N                = self.get_parameter('N').value
+        self.L                = self.get_parameter('wheelbase').value
+        self.max_steer        = self.get_parameter('max_steer').value
+        self.max_speed        = self.get_parameter('max_speed').value
 
         # Internal state (from the local EKF)
         self.state         = np.zeros(3)
@@ -99,11 +101,17 @@ class AckermannMPC(Node):
         self.route_completed = False
 
         # ── Subscribers ──────────────────────────────────────────────
-        self.create_subscription(Odometry, '/odometry/local',
+        if self.use_ground_truth:
+            self.fused_received = True
+            self.create_subscription(Odometry, '/ground_truth_odom',
                                  self.odom_cb, 10)
-
-        self.create_subscription(Odometry, '/odometry/fused',
-                                 self.fused_cb, 10)
+  
+        else:
+            self.create_subscription(Odometry, '/odometry/local',
+                                self.odom_cb, 10)
+                    
+            self.create_subscription(Odometry, '/odometry/fused',
+                                self.fused_cb, 10)
 
         self.create_subscription(Float64MultiArray, '/trajectory_topp',
                                  self.trajectory_cb, 10)
@@ -220,7 +228,7 @@ class AckermannMPC(Node):
         self.state = np.array([p.x, p.y, self.yaw_cont])
 
         if not self.odom_received:
-            self.get_logger().info('First odometry/local received!')
+            self.get_logger().info('First odometry received!')
             self.odom_received = True
 
     def fused_cb(self, msg):
