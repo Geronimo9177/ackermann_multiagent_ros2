@@ -23,7 +23,7 @@ def generate_launch_description():
 
     declare_vehicle = DeclareLaunchArgument(
         'vehicle',
-        default_value='toyota',
+        default_value='tesla',
         description='Vehicle model: toyota or tesla'
     )
 
