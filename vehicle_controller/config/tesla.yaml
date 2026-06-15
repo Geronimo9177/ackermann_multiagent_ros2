@@ -1,5 +1,6 @@
 ackermann_mpc:
   ros__parameters:
+    use_ground_truth: true
     wheelbase: 2.94
     max_steer: 0.5
     max_speed: 8.0

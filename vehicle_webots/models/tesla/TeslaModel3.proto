@@ -50,10 +50,10 @@ PROTO TeslaModel3 [
     engineMaxTorque 639
     engineMaxPower 147000
     engineMaxRPM 25000
-    suspensionFrontDampingConstant 10000
-    suspensionRearDampingConstant  10000
-    suspensionFrontSpringConstant 60000
-    suspensionRearSpringConstant 60000
+    suspensionFrontDampingConstant 30000
+    suspensionRearDampingConstant  30000
+    suspensionFrontSpringConstant 150000
+    suspensionRearSpringConstant 150000
     wheelsDampingConstant 3
     gearRatio [-6.3 9]
     wheelFrontLeft TeslaModel3Wheel {
