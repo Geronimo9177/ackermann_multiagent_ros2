@@ -142,6 +142,7 @@ class AckermannMPC(Node):
         self.prev_u = np.zeros(2)
         self.last_solution = None
         self.yaw_cont = None
+        self.current_path  = None
         self.current_idx = None
         self.get_logger().info("MPC internal state reset.")
 

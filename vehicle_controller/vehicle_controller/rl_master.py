@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from tf_transformations import euler_from_quaternion
 from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
@@ -14,10 +15,11 @@ import math
 class RLMaster(Node):
 
     # ── Condiciones de fin de episodio ──────────────────────────
-    CRASH_SPEED_THRESHOLD  = 0.05   # m/s  — velocidad "casi cero" = choque
-    CRASH_SPEED_DURATION   = 1.0    # s    — cuánto tiempo debe mantenerse
-    FALL_Z_THRESHOLD       = -1.0   # m    — Z por debajo de esto = caída del mapa
-    MIN_INITIAL_SPEED      = 0.3    # m/s  — el vehículo debe superar esta vel
+    CRASH_SPEED_THRESHOLD  = 0.1   # m/s
+    CRASH_SPEED_DURATION   = 0.5    # s
+    FALL_Z_THRESHOLD       = -1.0   # m
+    MIN_INITIAL_SPEED      = 0.3    # m/s 
+    ROLLOVER_THRESHOLD     = math.radians(60.0)
 
     RESULT_RUNNING  = 0
     RESULT_SUCCESS  = 1
@@ -79,10 +81,6 @@ class RLMaster(Node):
         """Velocidad ground truth para detección de crash."""
         if not self._episode_active:
             return
-        
-        vx = msg.twist.twist.linear.x
-        vy = msg.twist.twist.linear.y
-        speed = math.sqrt(vx**2 + vy**2)
 
         z_pos = msg.pose.pose.position.z
 
@@ -92,7 +90,22 @@ class RLMaster(Node):
             self._end_episode(self.RESULT_FALL)
             return
         
+        q = msg.pose.pose.orientation
+
+        (roll, pitch, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        if abs(roll) > self.ROLLOVER_THRESHOLD or abs(pitch) > self.ROLLOVER_THRESHOLD:
+            self.get_logger().warn(
+                f'VUELCO detectado (roll={math.degrees(roll):.1f}°, pitch={math.degrees(pitch):.1f}°)'
+            )
+            self._end_episode(self.RESULT_CRASH)
+            return
+        
         now = self.get_clock().now().nanoseconds * 1e-9
+
+        vx = msg.twist.twist.linear.x
+        vy = msg.twist.twist.linear.y
+        speed = math.sqrt(vx**2 + vy**2)
 
         if speed > self.MIN_INITIAL_SPEED:
             self._vehicle_moved = True
@@ -123,6 +136,15 @@ class RLMaster(Node):
         self._topp_ready = True
         self.get_logger().info('TOPP listo — arrancando episodio en 0.5s...')
         self._traj_timer = self.create_timer(0.5, self._on_traj_timer)
+    
+    def _kill_madgwick(self):
+        """Mata el proceso del filtro IMU. ROS 2 lo revivirá automáticamente en limpio."""
+        try:
+            # pkill busca el proceso por su nombre ejecutable y lo termina a la fuerza
+            subprocess.run(['pkill', '-f', 'imu_filter_madgwick_node'], check=False)
+            self.get_logger().info('Filtro Madgwick aniquilado (esperando respawn limpio...)')
+        except Exception as e:
+            self.get_logger().error(f'Error al intentar matar a Madgwick: {e}')
 
     # ── Timers de arranque ───────────────────────────────────────
     def _on_start_timer(self):
@@ -191,6 +213,7 @@ class RLMaster(Node):
         msg_b = Bool()
         msg_b.data = True
         self.reset_pub.publish(msg_b)
+        self._kill_madgwick()
 
         self._fused_ready = False
         self.get_logger().info('Esperando /odometry/fused para nuevo episodio...')

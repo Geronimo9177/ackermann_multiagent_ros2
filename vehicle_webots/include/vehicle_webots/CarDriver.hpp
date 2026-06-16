@@ -23,6 +23,7 @@
 #include <webots/supervisor.h>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -60,13 +61,15 @@ private:
   WbNodeRef self_node_;
 
   // ── ROS publishers ───────────────────────────────────────────
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr      odom_pub_;
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr      gt_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr        imu_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr  gps_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr      seg_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr js_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr                       odom_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr                       gt_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr                         imu_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr               mag_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr                   gps_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr                       seg_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr                  js_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr set_pose_local_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr set_pose_global_pub_;
 
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_vel_sub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;

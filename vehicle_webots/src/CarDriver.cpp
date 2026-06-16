@@ -5,6 +5,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Quaternion.h"
+#include <tf2/LinearMath/Matrix3x3.h>
 
 #include <chrono>
 #include <thread>
@@ -154,18 +155,47 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
         theta_ = 0.0;
         last_left_pos_  = wb_position_sensor_get_value(left_rear_sensor_);
         last_right_pos_ = wb_position_sensor_get_value(right_rear_sensor_);
+
+        geometry_msgs::msg::PoseWithCovarianceStamped pose_msg;
+        pose_msg.header.stamp = node_->get_clock()->now();
+        
+        pose_msg.pose.pose.position.x = 0.0;
+        pose_msg.pose.pose.position.y = 0.0;
+        pose_msg.pose.pose.position.z = 0.0;
+        pose_msg.pose.pose.orientation.x = 0.0;
+        pose_msg.pose.pose.orientation.y = 0.0;
+        pose_msg.pose.pose.orientation.z = 0.0;
+        pose_msg.pose.pose.orientation.w = 1.0;
+
+        pose_msg.pose.covariance.fill(0.0);
+        pose_msg.pose.covariance[0]  = 1e-9;
+        pose_msg.pose.covariance[7]  = 1e-9;
+        pose_msg.pose.covariance[14] = 1e-9;
+        pose_msg.pose.covariance[21] = 1e-9;
+        pose_msg.pose.covariance[28] = 1e-9;
+        pose_msg.pose.covariance[35] = 1e-9;
+
+        // EKF Local
+        pose_msg.header.frame_id = "odom";
+        set_pose_local_pub_->publish(pose_msg);
+
+        // EKF Global
+        pose_msg.header.frame_id = "map";
+        set_pose_global_pub_->publish(pose_msg);
         
         RCLCPP_INFO(node_->get_logger(), "Simulation Reset");
     });
 
     // ── Publishers ────────────────────────────────────────────────
-    odom_pub_ = node->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
-    gt_pub_   = node->create_publisher<nav_msgs::msg::Odometry>("/ground_truth_odom", 10);
-    imu_pub_  = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data_raw", 10);
-    mag_pub_  = node->create_publisher<sensor_msgs::msg::MagneticField>("/magnetometer", 10);
-    gps_pub_  = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
-    seg_pub_  = node->create_publisher<sensor_msgs::msg::Image>("/camera/segmentation", 10);
-    js_pub_   = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+    odom_pub_            = node->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+    gt_pub_              = node->create_publisher<nav_msgs::msg::Odometry>("/ground_truth_odom", 10);
+    imu_pub_             = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data_raw", 10);
+    mag_pub_             = node->create_publisher<sensor_msgs::msg::MagneticField>("/magnetometer", 10);
+    gps_pub_             = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
+    seg_pub_             = node->create_publisher<sensor_msgs::msg::Image>("/camera/segmentation", 10);
+    js_pub_              = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+    set_pose_local_pub_  = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/ekf_local/set_pose", 1);
+    set_pose_global_pub_ = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/ekf_global/set_pose", 1);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node);
 
@@ -318,11 +348,19 @@ void CarDriver::publishGroundTruth()
 
   // Rotation matrix 
   const double *rot = wb_supervisor_node_get_orientation(self_node_);
-  // rot = [r00 r01 r02 r10 r11 r12 r20 r21 r22]
-  // yaw = atan2(r10, r00)
-  double yaw = std::atan2(rot[3], rot[0]);
 
-  // Ground truth velocity in world frame
+  tf2::Matrix3x3 mat(
+      rot[0], rot[1], rot[2],
+      rot[3], rot[4], rot[5],
+      rot[6], rot[7], rot[8]
+  );
+
+  tf2::Quaternion q;
+  mat.getRotation(q);
+
+  double roll, pitch, yaw;
+  mat.getRPY(roll, pitch, yaw);
+
   const double *vel = wb_supervisor_node_get_velocity(self_node_);
 
   // Transform velocity to body frame
@@ -339,8 +377,11 @@ void CarDriver::publishGroundTruth()
   msg.pose.pose.position.x = pos[0];
   msg.pose.pose.position.y = pos[1];
   msg.pose.pose.position.z = pos[2];
-  msg.pose.pose.orientation.z = std::sin(yaw / 2.0);
-  msg.pose.pose.orientation.w = std::cos(yaw / 2.0);
+  
+  msg.pose.pose.orientation.x = q.x();
+  msg.pose.pose.orientation.y = q.y();
+  msg.pose.pose.orientation.z = q.z();
+  msg.pose.pose.orientation.w = q.w();
 
   msg.twist.twist.linear.x  = vx_b;
   msg.twist.twist.linear.y  = vy_b;

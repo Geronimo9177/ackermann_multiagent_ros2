@@ -65,7 +65,8 @@ def generate_launch_description():
             ('imu/data_raw', '/imu/data_raw'),
             ('imu/mag',      '/magnetometer'),
             ('imu/data',     '/imu/data'),
-        ]
+        ],
+        respawn=True
     )
 
     # EKF local: odom + imu/data → /odometry/local
@@ -75,7 +76,8 @@ def generate_launch_description():
         name='ekf_filter_node_odom',
         output='screen',
         parameters=[sensor_fusion_config],
-        remappings=[('odometry/filtered', '/odometry/local')]
+        remappings=[('odometry/filtered', '/odometry/local'),
+                    ('set_pose', '/ekf_local/set_pose')]
     )
 
     # EKF global: odometry/local + imu + GPS → /odometry/global
@@ -85,7 +87,8 @@ def generate_launch_description():
         name='ekf_filter_node_map',
         output='screen',
         parameters=[sensor_fusion_config],
-        remappings=[('odometry/filtered', '/odometry/global')]
+        remappings=[('odometry/filtered', '/odometry/global'),
+                    ('set_pose', '/ekf_global/set_pose')]
     )
 
     # navsat_transform: GPS + odometry/global → odometry/gps

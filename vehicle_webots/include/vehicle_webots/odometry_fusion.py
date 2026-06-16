@@ -17,7 +17,7 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 from nav_msgs.msg import Odometry
-
+from std_msgs.msg import Bool
 
 class OdometryFusion(Node):
 
@@ -55,6 +55,7 @@ class OdometryFusion(Node):
 
         self.create_subscription(Odometry, '/odometry/local', self.local_cb, 10)
         self.create_subscription(Odometry, '/odometry/global', self.global_cb, 10)
+        self.create_subscription(Bool, '/sim/reset', self.reset_cb, 10)
 
         self.pub = self.create_publisher(Odometry, '/odometry/fused', 10)
 
@@ -65,6 +66,18 @@ class OdometryFusion(Node):
             f'max_step={self.max_step:.3f}m | '
             f'velocity_threshold={self.velocity_threshold:.3f}m/s'
         )
+
+    # ========================================================================
+    def reset_cb(self, msg: Bool):
+        """Purga toda la memoria acumulada entre episodios."""
+        self.correction = np.zeros(2)
+        self.residual_ema = np.zeros(2)
+        self.correcting = False
+
+        self.local_pose = None
+        self.global_pose = None
+        
+        self.get_logger().info('OdometryFusion reset')
 
     # ========================================================================
     def local_cb(self, msg: Odometry):
