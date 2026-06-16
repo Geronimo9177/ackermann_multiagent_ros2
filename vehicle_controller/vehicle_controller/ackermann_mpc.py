@@ -9,7 +9,7 @@ import time
 
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import TwistStamped, PoseStamped
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Bool
 from tf_transformations import quaternion_matrix
 
 from std_msgs.msg import Header
@@ -105,7 +105,7 @@ class AckermannMPC(Node):
         if self.use_ground_truth:
             self.fused_received = True
             self.create_subscription(Odometry, '/ground_truth_odom',
-                                 self.odom_cb, 10)
+                                self.odom_cb, 10)
   
         else:
             self.create_subscription(Odometry, '/odometry/local',
@@ -115,14 +115,19 @@ class AckermannMPC(Node):
                                 self.fused_cb, 10)
 
         self.create_subscription(Float64MultiArray, '/trajectory_topp',
-                                 self.trajectory_cb, 10)
+                                self.trajectory_cb, 10)
         
-        self.create_subscription(Header, '/rl/trigger', self._trigger_cb, 1)
+        self.create_subscription(Header, '/sim/trigger', 
+                                self._trigger_cb, 1)
+        
+        self.create_subscription(Bool, '/sim/reset', 
+                                self.reset_cb, 1)
 
         # ── Publishers ───────────────────────────────────────────────
         self.cmd_pub            = self.create_publisher(TwistStamped,      '/cmd_vel',             10)
         self.debug_pub          = self.create_publisher(Float64MultiArray,  '/mpc/debug',           10)
         self.predicted_path_pub = self.create_publisher(Path,               '/mpc/predicted_path',  10)
+        self.success_pub        = self.create_publisher(Bool, '/mpc/success', 1)
 
         self.get_logger().info('Setting up MPC solver...')
         self.setup_mpc()
@@ -132,6 +137,13 @@ class AckermannMPC(Node):
 
     def _trigger_cb(self, msg: Header):
         self.control_loop()
+
+    def reset_cb(self, _msg):
+        self.prev_u = np.zeros(2)
+        self.last_solution = None
+        self.yaw_cont = None
+        self.current_idx = None
+        self.get_logger().info("MPC internal state reset.")
 
     def debug_status(self):
         self.get_logger().info(
@@ -432,9 +444,8 @@ class AckermannMPC(Node):
                     self.path_received   = False
                     self.current_idx     = None
                     self.publish_cmd(np.zeros(2))
-                    self.get_logger().info(
-                        f'Route completed (tol={self.goal_tolerance:.3f} m)'
-                    )
+                    self.get_logger().info(f'Route completed (tol={self.goal_tolerance:.3f} m)')
+                    self.success_pub.publish(Bool(data=True))
                     return
 
             ref      = []

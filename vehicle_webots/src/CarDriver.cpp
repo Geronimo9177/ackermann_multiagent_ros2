@@ -56,7 +56,7 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     wb_position_sensor_enable(left_steer_sensor_,  timestep);
     wb_position_sensor_enable(right_steer_sensor_, timestep);
 
-    // ── IMU stack ─────────────────────────────────────────────────
+    // ── Sensor stack ─────────────────────────────────────────────────
     imu_   = wb_robot_get_device("imu");
     gyro_  = wb_robot_get_device("gyro");
     accel_ = wb_robot_get_device("accel");
@@ -76,6 +76,11 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     wb_camera_recognition_enable_segmentation(camera_);
 
     self_node_ = wb_supervisor_node_get_self();
+
+    trans_field_ = wb_supervisor_node_get_field(self_node_, "translation");
+    rot_field_   = wb_supervisor_node_get_field(self_node_, "rotation");
+
+    viewpoint_node_ = wb_supervisor_node_get_from_def("VIEWPOINT");
 
     // ── Camera info ───────────────────────────────────────────────
     cam_width_  = wb_camera_get_width(camera_);
@@ -98,10 +103,10 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     training_mode_ = node->declare_parameter("training_mode", false);
 
     rl_trigger_pub_ = node->create_publisher<std_msgs::msg::Header>(
-        "/rl/trigger", 1);
+        "/sim/trigger", 1);
 
     start_sub_ = node->create_subscription<std_msgs::msg::Bool>(
-    "/rl/start", 1,
+    "/sim/start", 1,
     [this](const std_msgs::msg::Bool::SharedPtr msg) {
         if (msg->data && !system_ready_) {
             system_ready_ = true;
@@ -114,13 +119,43 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     });
 
     reset_sub_ = node->create_subscription<std_msgs::msg::Bool>(
-    "/rl/reset", 1,
+    "/sim/reset", 1,
     [this](const std_msgs::msg::Bool::SharedPtr) {
-        system_ready_ = false;   // vuelve a tiempo real hasta el próximo /rl/start
+        system_ready_ = false;   
         waiting_cmd_  = false;
         last_rl_trigger_ = -1.0;
-        wb_supervisor_simulation_reset();
-        RCLCPP_INFO(node_->get_logger(), "Simulation reset");
+        target_speed_ = 0.0;
+        target_steer_ = 0.0;
+        wbu_driver_set_cruising_speed(0.0);
+        wbu_driver_set_steering_angle(0.0);
+
+        wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_REAL_TIME);
+        wb_supervisor_node_reset_physics(self_node_);
+
+        const double origin_trans[3] = {0.0, 0.0, 0.0};
+        const double origin_rot[4]   = {0.0, 0.0, 1.0, 0.0}; 
+        
+        wb_supervisor_field_set_sf_vec3f(trans_field_, origin_trans);
+        wb_supervisor_field_set_sf_rotation(rot_field_, origin_rot);
+
+        if (viewpoint_node_) {
+            WbFieldRef view_pos = wb_supervisor_node_get_field(viewpoint_node_, "position");
+            WbFieldRef view_ori = wb_supervisor_node_get_field(viewpoint_node_, "orientation");
+            
+            const double cam_origin[3] = {-20.0, 8.0, 6.0};
+            const double cam_rot[4]    = {0.0, 0.4, -0.8, 0.35};
+            
+            wb_supervisor_field_set_sf_vec3f(view_pos, cam_origin);
+            wb_supervisor_field_set_sf_rotation(view_ori, cam_rot);
+        }
+
+        x_ = 0.0;
+        y_ = 0.0;
+        theta_ = 0.0;
+        last_left_pos_  = wb_position_sensor_get_value(left_rear_sensor_);
+        last_right_pos_ = wb_position_sensor_get_value(right_rear_sensor_);
+        
+        RCLCPP_INFO(node_->get_logger(), "Simulation Reset");
     });
 
     // ── Publishers ────────────────────────────────────────────────

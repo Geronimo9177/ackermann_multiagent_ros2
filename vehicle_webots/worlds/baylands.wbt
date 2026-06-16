@@ -36,10 +36,9 @@ WorldInfo {
   ]
 }
 
-Viewpoint {
+DEF VIEWPOINT Viewpoint {
   orientation 0.0 0.4 -0.8 0.35
   position -20 8 6
-  near 1
   follow "tesla"
   followSmoothness 0
 }

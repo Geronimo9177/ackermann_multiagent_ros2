@@ -79,6 +79,11 @@ private:
   double last_left_pos_{0.0}, last_right_pos_{0.0};
   double target_speed_{0.0}, target_steer_{0.0};
 
+  WbFieldRef trans_field_;
+  WbFieldRef rot_field_;
+
+  WbNodeRef viewpoint_node_;
+
   // ── Sensor timing ────────────────────────────────────────────
   double last_imu_pub_{0.0};
   double last_mag_pub_{0.0};
@@ -101,19 +106,18 @@ private:
   std::normal_distribution<double> mag_noise_;
 
   // ── RL sync ──────────────────────────────────────────────────────
-  static constexpr double RL_PERIOD = 0.05;  // 50ms de simulación
+  static constexpr double RL_PERIOD = 0.05;  // 50ms
 
   bool   system_ready_{false};
   bool   training_mode_{false};
   double last_rl_trigger_{-1.0};
-  double t_trigger_{-1.0};          // sim time cuando se publicó el trigger
+  double t_trigger_{-1.0};
   bool   waiting_cmd_{false};
   
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   start_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   reset_sub_;
   rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr    rl_trigger_pub_;
 
-  // Stamp del último /cmd_vel recibido (nanosegundos ROS)
   int64_t last_cmd_stamp_ns_{0};
   int64_t trigger_stamp_ns_{0};
 
