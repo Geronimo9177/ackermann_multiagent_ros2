@@ -12,8 +12,8 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
 
     run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
-
     vehicle = LaunchConfiguration('vehicle')
+    use_ground_truth = LaunchConfiguration('use_ground_truth')
 
     declare_run_debug_visualizer = DeclareLaunchArgument(
         'run_debug_visualizer',
@@ -27,6 +27,12 @@ def generate_launch_description():
         description='Vehicle model: toyota or tesla'
     )
 
+    declare_use_ground_truth = DeclareLaunchArgument(
+        'use_ground_truth', 
+        default_value='false',
+        description='Sobreescribe el YAML para decirle al MPC qué odometría usar'
+    )
+
     vehicle_config = PathJoinSubstitution([
         FindPackageShare('vehicle_controller'), 'config', [vehicle, '.yaml']
     ])
@@ -35,13 +41,14 @@ def generate_launch_description():
 
         declare_run_debug_visualizer,
         declare_vehicle,
+        declare_use_ground_truth,
 
         Node(
             package='vehicle_controller',
             executable='ackermann_mpc',
             name='ackermann_mpc',
             output='screen',
-            parameters=[vehicle_config],
+            parameters=[vehicle_config, {'use_ground_truth': use_ground_truth}],
         ),
 
         Node(

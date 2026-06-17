@@ -10,16 +10,23 @@ from launch.event_handlers import OnProcessExit
 from launch.actions import RegisterEventHandler, TimerAction, DeclareLaunchArgument
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
+from launch.conditions import UnlessCondition
 
 
 def generate_launch_description():
 
     training_mode = LaunchConfiguration('training_mode')
+    use_ground_truth = LaunchConfiguration('use_ground_truth')
 
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
         default_value='false',
         description='true = FAST + pause cada 50ms | false = tiempo real sin pausa'
+    )
+
+    declare_use_ground_truth = DeclareLaunchArgument(
+        'use_ground_truth', default_value='false',
+        description='Si es true, no lanza los EKF ni filtros'
     )
 
     pkg = 'vehicle_webots'
@@ -51,7 +58,8 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=['1.11', '0', '1.16', '0', '0', '0', 'base_link', 'gps_link'],
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(use_ground_truth)
     )
 
     # Madgwick: fusiona IMU raw + magnetómetro → /imu/data
@@ -66,7 +74,8 @@ def generate_launch_description():
             ('imu/mag',      '/magnetometer'),
             ('imu/data',     '/imu/data'),
         ],
-        respawn=True
+        respawn=True,
+        condition=UnlessCondition(use_ground_truth)
     )
 
     # EKF local: odom + imu/data → /odometry/local
@@ -77,7 +86,8 @@ def generate_launch_description():
         output='screen',
         parameters=[sensor_fusion_config],
         remappings=[('odometry/filtered', '/odometry/local'),
-                    ('set_pose', '/ekf_local/set_pose')]
+                    ('set_pose', '/ekf_local/set_pose')],
+        condition=UnlessCondition(use_ground_truth)
     )
 
     # EKF global: odometry/local + imu + GPS → /odometry/global
@@ -88,7 +98,8 @@ def generate_launch_description():
         output='screen',
         parameters=[sensor_fusion_config],
         remappings=[('odometry/filtered', '/odometry/global'),
-                    ('set_pose', '/ekf_global/set_pose')]
+                    ('set_pose', '/ekf_global/set_pose')],
+        condition=UnlessCondition(use_ground_truth)
     )
 
     # navsat_transform: GPS + odometry/global → odometry/gps
@@ -103,7 +114,8 @@ def generate_launch_description():
             ('gps/fix',           '/gps/fix'),
             ('odometry/filtered', '/odometry/global'),
             ('odometry/gps',      '/odometry/gps'),
-        ]
+        ],
+        condition=UnlessCondition(use_ground_truth)
     )
 
     odom_fusion = Node(
@@ -114,7 +126,8 @@ def generate_launch_description():
         parameters=[{
             'drift_threshold': 1.5,
             'correction_alpha': 0.02,
-        }]
+        }],
+        condition=UnlessCondition(use_ground_truth)
     )
 
     # Arrancar fusión sensorial cuando el driver esté listo
@@ -137,6 +150,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_training_mode,
+        declare_use_ground_truth,
         webots,
         webots._supervisor,
         vehicle_driver,

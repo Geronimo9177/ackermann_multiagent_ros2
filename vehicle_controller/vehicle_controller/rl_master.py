@@ -30,12 +30,15 @@ class RLMaster(Node):
         super().__init__('rl_master')
 
         self.declare_parameter('training_mode', True)
+        self.declare_parameter('use_ground_truth', False)
+
         self.training_mode = self.get_parameter('training_mode').value
+        self.use_ground_truth = self.get_parameter('use_ground_truth').value
 
         # Solo gestionamos el proceso de la trayectoria
         self._traj_process   = None 
 
-        self._fused_ready    = False
+        self._odom_ready    = False
         self._episode_active = False
         self._start_timer    = None
         self._traj_timer     = None
@@ -59,8 +62,13 @@ class RLMaster(Node):
         self.topp_sub = self.create_subscription(
             Float64MultiArray, '/trajectory_topp', self._topp_cb, 1)
         
-        self.fused_sub = self.create_subscription(
-            Odometry, '/odometry/fused', self._fused_cb, 10)
+        if self.use_ground_truth:
+            self.main_odom_topic = '/ground_truth_odom'
+        else:
+            self.main_odom_topic = '/odometry/fused'
+
+        self.odom_sub = self.create_subscription(
+            Odometry, self.main_odom_topic, self._main_odom_cb, 10) # ¡Cambiado!
 
         self.success_sub = self.create_subscription(
             Bool, '/mpc/success', self._success_cb, 1)
@@ -68,7 +76,7 @@ class RLMaster(Node):
         self.gt_sub = self.create_subscription(
             Odometry, '/ground_truth_odom', self._gt_cb, 10)
         
-        self.get_logger().info('RLMaster iniciado — esperando /odometry/fused...')
+        self.get_logger().info('RLMaster iniciado')
 
     # ── Callbacks ────────────────────────────────────────────────
     def _success_cb(self, _msg: Bool):
@@ -120,11 +128,11 @@ class RLMaster(Node):
             else:
                 self._low_speed_since = None
 
-    def _fused_cb(self, msg: Odometry):
-        if not self._fused_ready:
-            self._fused_ready = True
-            self.get_logger().info('odometry/fused activo — arrancando en 2s...')
-            self._start_timer = self.create_timer(2.0, self._on_start_timer)
+    def _main_odom_cb(self, msg: Odometry):
+        if not self._odom_ready:
+            self._odom_ready = True
+            self.get_logger().info(f'{self.main_odom_topic} activo — arrancando..')
+            self._start_timer = self.create_timer(1.0, self._on_start_timer)
             return
 
     def _topp_cb(self, _msg):
@@ -139,10 +147,13 @@ class RLMaster(Node):
     
     def _kill_madgwick(self):
         """Mata el proceso del filtro IMU. ROS 2 lo revivirá automáticamente en limpio."""
+        if self.use_ground_truth:
+            return
+        
         try:
             # pkill busca el proceso por su nombre ejecutable y lo termina a la fuerza
             subprocess.run(['pkill', '-f', 'imu_filter_madgwick_node'], check=False)
-            self.get_logger().info('Filtro Madgwick aniquilado (esperando respawn limpio...)')
+            self.get_logger().info('Filtro Madgwick aniquilado')
         except Exception as e:
             self.get_logger().error(f'Error al intentar matar a Madgwick: {e}')
 
@@ -215,8 +226,8 @@ class RLMaster(Node):
         self.reset_pub.publish(msg_b)
         self._kill_madgwick()
 
-        self._fused_ready = False
-        self.get_logger().info('Esperando /odometry/fused para nuevo episodio...')
+        self._odom_ready = False
+        self.get_logger().info(f'Esperando {self.main_odom_topic} para nuevo episodio...')
 
     # ── Helpers ──────────────────────────────────────────────────
     def _pick_random_trajectory(self):
