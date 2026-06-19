@@ -1,0 +1,604 @@
+#!/usr/bin/env python3
+"""
+PPO agent node — integrates with the existing MPC + Webots pipeline.
+
+Topic graph (additions marked with ★):
+PPO agent (reads /cmd_vel AFTER MPC publishes)
+    ├─ obs: /camera/segmentation, /ground_truth_odom,
+    ├─ publishes★ /cmd_vel (overrides MPC with base + residual)
+    └─ reward★: /ppo/reward (from rl_master)
+
+Timing contract (training mode):
+  1. Webots fires /sim/trigger  →  sim is PAUSED
+  2. MPC computes and publishes /cmd_vel_mpc
+  3. PPO waits for /cmd_vel_mpc, builds obs, runs forward pass, publishes /cmd_vel (base + residual)
+  4. CarDriver sees new /cmd_vel stamp → resumes sim
+"""
+
+import os
+import math
+import time
+import threading
+from collections import deque
+
+import numpy as np
+import torch
+import torch.optim as optim
+import cv2
+from cv_bridge import CvBridge
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Int32, Float64MultiArray
+from sensor_msgs.msg import Image
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import TwistStamped
+from std_msgs.msg import Bool
+from tf_transformations import euler_from_quaternion
+from torch.utils.tensorboard import SummaryWriter
+
+from ppo.config import CONFIG
+from ppo.model import ActorCriticModel
+from ppo.buffer import Buffer
+
+
+def _polynomial_decay(initial, final, max_steps, power, step):
+    if step >= max_steps:
+        return final
+    return (initial - final) * ((1 - step / max_steps) ** power) + final
+
+
+class PPOAgentNode(Node):
+    """
+    ROS 2 node that wraps the PPO training loop.
+    """
+
+    def __init__(self):
+        super().__init__('ppo_agent')
+
+        # ── Parameters ────────────────────────────────────────────
+        self.declare_parameter('training_mode',    True)
+        self.declare_parameter('use_ground_truth', False)
+        self.declare_parameter('run_id',           'ppo_run')
+        self.declare_parameter('checkpoint_dir',   CONFIG['checkpoint_dir'])
+
+        self.training_mode    = self.get_parameter('training_mode').value
+        self.use_ground_truth = self.get_parameter('use_ground_truth').value
+        self.run_id           = self.get_parameter('run_id').value
+        self.ckpt_dir         = self.get_parameter('checkpoint_dir').value
+
+        self.config = CONFIG
+        self.cfg_rec = CONFIG['recurrence']
+        self.use_rec = CONFIG['use_recurrence']
+
+        # ── Device ────────────────────────────────────────────────
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.get_logger().info(f'PPO using device: {self.device}')
+
+        # ── Model & optimizer ─────────────────────────────────────
+        self.model = ActorCriticModel(self.config).to(self.device)
+        self.optimizer = optim.AdamW(
+            self.model.parameters(),
+            lr=self.config['learning_rate_schedule']['initial']
+        )
+
+        # Recurrent cell state (batch_size = 1 during rollout)
+        hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
+        self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) \
+                              else hxs
+
+        # ── Buffer ────────────────────────────────────────────────
+        self.buffer  = Buffer(self.config, self.device)
+
+        # ── Tensorboard ───────────────────────────────────────────
+        os.makedirs('./summaries', exist_ok=True)
+        ts = time.strftime('%Y%m%d-%H%M%S')
+        self.writer = SummaryWriter(f'./summaries/{self.run_id}/{ts}')
+
+        # ── Training counters ─────────────────────────────────────
+        self.update_count     = 0
+        self.episode_rewards  = []
+        self.episode_lengths  = []
+        self._ep_reward       = 0.0
+        self._ep_length       = 0
+        self._recent_ep_infos = deque(maxlen=100)
+
+        # ── Observation cache ─────────────────────────────────────
+        # These are updated asynchronously by subscriber callbacks
+        self._img_msg:   Image      = None
+        self._odom_msg:  Odometry   = None
+        self._mpc_cmd:   TwistStamped = None
+        self._lock       = threading.Lock()
+
+        self.bridge = CvBridge()
+
+        img_h = self.config['img_height']
+        img_w = self.config['img_width']
+        self._blank_img = np.zeros((img_h, img_w), dtype=np.float32)
+
+        self._e_lat = 0.0
+        self._e_lon = 0.0
+        self._e_yaw = 0.0
+        self._e_v   = 0.0
+        self._wp_x   = 0.0
+        self._wp_y   = 0.0
+        self._wp_yaw = 0.0
+        self._wp_v   = 0.0
+
+        # ── Pending reward/done ────────────────────────────────────
+        # rl_master publishes the episode result AFTER the step that ended it.
+        # We buffer it and apply it to the next store() call.
+        self._pending_result: int = None   # RESULT_* from rl_master
+        self._episode_done       = False
+
+        # ── Previous action for the buffer ────────────────────────
+        self._prev_action   = torch.zeros(self.config['action_size'])
+        self._prev_log_prob = torch.zeros(self.config['action_size'])
+        self._prev_value    = torch.zeros(1)
+        self._prev_img      = None
+        self._prev_vec      = None
+        self._have_prev     = False
+
+        # ── Checkpoint ────────────────────────────────────────────
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+        self._try_load_checkpoint()
+
+        # ── Subscribers ───────────────────────────────────────────
+        self.create_subscription(Image,       '/camera/segmentation',
+                                 self._img_cb,  10)
+        self.create_subscription(TwistStamped, '/cmd_vel_mpc',
+                                 self._mpc_cmd_cb, 1)
+        self.create_subscription(Int32,       '/rl/result',
+                                 self._result_cb,  1)
+        self.create_subscription(Bool,        '/sim/reset',
+                                 self._reset_cb,   1)
+        
+        self.create_subscription(Float64MultiArray, '/mpc/debug',
+                                self._mpc_debug_cb, 10)
+
+        odom_topic = '/ground_truth_odom' if self.use_ground_truth \
+                     else '/odometry/fused'
+        self.create_subscription(Odometry, odom_topic,
+                                 self._odom_cb, 10)
+
+        # ── Publishers ────────────────────────────────────────────
+        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 1)
+
+        self.get_logger().info('PPO agent ready.')
+
+    # ═══════════════════════════════════════════════════════════════
+    # Subscriber callbacks
+    # ═══════════════════════════════════════════════════════════════
+
+    def _img_cb(self, msg: Image):
+        with self._lock:
+            self._img_msg = msg
+
+    def _odom_cb(self, msg: Odometry):
+        with self._lock:
+            self._odom_msg = msg
+    
+    def _mpc_debug_cb(self, msg: Float64MultiArray):
+        if len(msg.data) < 6:
+            return
+        x_now, y_now, yaw_now = msg.data[0], msg.data[1], msg.data[2]
+        x_ref, y_ref, yaw_ref = msg.data[3], msg.data[4], msg.data[5]
+        v_ref = float(msg.data[7])
+
+        dx = x_now - x_ref
+        dy = y_now - y_ref
+
+        e_lat = abs(-math.sin(yaw_ref) * dx + math.cos(yaw_ref) * dy)
+        e_lon = abs( math.cos(yaw_ref) * dx + math.sin(yaw_ref) * dy)
+        e_yaw = abs(math.atan2(math.sin(yaw_now - yaw_ref), math.cos(yaw_now - yaw_ref)))
+
+        with self._lock:
+            self._e_lat = e_lat
+            self._e_lon = e_lon
+            self._e_yaw = e_yaw
+            self._wp_x    = x_ref
+            self._wp_y    = y_ref
+            self._wp_yaw  = yaw_ref
+            self._wp_v    = v_ref
+
+            if self._odom_msg is not None:
+                v_now = self._odom_msg.twist.twist.linear.x
+                self._e_v = abs(v_now - v_ref)
+
+    def _result_cb(self, msg: Int32):
+        """Episode result from rl_master (0=running,1=success,2=crash,3=fall)."""
+        result = msg.data
+        if result != 0:   # episode ended
+            self._pending_result = result
+            self._episode_done   = True
+
+    def _reset_cb(self, _msg: Bool):
+        """Reset recurrent state and episode tracking."""
+        hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
+        self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) \
+                              else hxs
+        self._have_prev       = False
+        self._ep_reward       = 0.0
+        self._ep_length       = 0
+        self._episode_done    = False
+        self._pending_result  = None
+
+    # ═══════════════════════════════════════════════════════════════
+    # Main control callback (called once per sim step, sim is PAUSED)
+    # ═══════════════════════════════════════════════════════════════
+
+    def _mpc_cmd_cb(self, msg: TwistStamped):
+        """
+        1. Build current observation
+        2. (If we have a previous transition) compute reward and store it
+        3. Run forward pass → publish /cmd_vel
+        4. Cache (obs, action, log_prob, value) for next step
+        5. If buffer is full → train
+        """
+        # ── 1. Snapshot observations ──────────────────────────────
+        with self._lock:
+            self._mpc_cmd = msg
+            img_msg  = self._img_msg
+            odom_msg = self._odom_msg
+            mpc_cmd  = self._mpc_cmd
+            e_lat    = self._e_lat
+            e_lon    = self._e_lon
+            e_yaw    = self._e_yaw
+            e_v      = self._e_v
+            wp_x     = self._wp_x
+            wp_y     = self._wp_y
+            wp_yaw   = self._wp_yaw
+            wp_v     = self._wp_v
+
+        img_t, vec_t = self._build_obs(img_msg, odom_msg, mpc_cmd, wp_x, wp_y, wp_yaw, wp_v)
+
+        # ── 2. Store previous transition ──────────────────────────
+        if self._have_prev and self.training_mode:
+            reward = self._compute_reward(odom_msg, e_lat, e_lon, e_yaw, e_v)
+            done   = self._episode_done
+
+            hx, cx = self._cell_arrays()
+            self.buffer.store(
+                img=self._prev_img, vec=self._prev_vec,
+                action=self._prev_action, log_prob=self._prev_log_prob,
+                value=self._prev_value,   reward=reward,
+                done=done, hx=hx, cx=cx,
+            )
+            self._ep_reward += reward
+            self._ep_length += 1
+
+            if done:
+                self._recent_ep_infos.append({
+                    'reward': self._ep_reward,
+                    'length': self._ep_length,
+                })
+                self._ep_reward = 0.0
+                self._ep_length = 0
+                self._episode_done   = False
+                self._pending_result = None
+
+        # ── 3. Forward pass ───────────────────────────────────────
+        with torch.no_grad():
+            img_d = img_t.unsqueeze(0).to(self.device)
+            vec_d = vec_t.unsqueeze(0).to(self.device)
+
+            dist, value, self.recurrent_cell = self.model(
+                img_d, vec_d, self.recurrent_cell
+            )
+
+            if self.training_mode:
+                action = dist.sample()
+            else:
+                action = dist.mean            # deterministic at test time
+
+            log_prob = dist.log_prob(action)  # (1, action_size)
+
+        # ── 4. Publish /cmd_vel (MPC base + PPO residual) ─────────
+        self._publish_cmd(mpc_cmd, action.squeeze(0))
+
+        # ── 5. Cache for next step ────────────────────────────────
+        self._prev_img      = img_t
+        self._prev_vec      = vec_t
+        self._prev_action   = action.squeeze(0).cpu()
+        self._prev_log_prob = log_prob.squeeze(0).cpu()
+        self._prev_value    = value.squeeze(0).cpu()
+        self._have_prev     = True
+
+        # ── 6. Train if buffer is full ────────────────────────────
+        if self.training_mode and self.buffer.full():
+            self._train()
+            self.buffer.reset_step()
+
+    # ═══════════════════════════════════════════════════════════════
+    # Observation builder
+    # ═══════════════════════════════════════════════════════════════
+
+    def _build_obs(self, img_msg, odom_msg, mpc_cmd, wp_x=0., wp_y=0., wp_yaw=0., wp_v=0.):
+        """Returns (img_tensor [1,H,W], vec_tensor [vec_dim])."""
+        cfg = self.config
+        H, W = cfg['img_height'], cfg['img_width']
+
+        # ── Image ─────────────────────────────────────────────────
+        if img_msg is not None:
+            try:
+                raw = self.bridge.imgmsg_to_cv2(img_msg, 'mono8')
+                raw = cv2.resize(raw, (W, H)).astype(np.float32) / 255.0
+            except Exception:
+                raw = self._blank_img.copy()
+        else:
+            raw = self._blank_img.copy()
+
+        img_t = torch.from_numpy(raw).unsqueeze(0)   # (1, H, W)
+
+        # ── Vector obs ────────────────────────────────────────────
+        # [vx, vy, vz, wx, wy, wz, pos_x, pos_y, yaw,
+        #  wp_x, wp_y, wp_yaw, wp_v, mpc_v, mpc_steer]
+        vec = np.zeros(cfg['vec_obs_size'], dtype=np.float32)
+
+        if odom_msg is not None:
+            # Velocities
+            t = odom_msg.twist.twist
+            vec[0] = t.linear.x
+            vec[1] = t.linear.y
+            vec[2] = t.linear.z
+            vec[3] = t.angular.x   # wx
+            vec[4] = t.angular.y   # wy
+            vec[5] = t.angular.z   # wz
+            
+            # Pose
+            p = odom_msg.pose.pose
+            vec[6] = p.position.x
+            vec[7] = p.position.y
+            q = p.orientation
+            _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            vec[8] = yaw
+
+        vec[9]  = wp_x
+        vec[10] = wp_y
+        vec[11] = wp_yaw
+        vec[12] = wp_v
+
+        if mpc_cmd is not None:
+            L = self.config.get('wheelbase', 2.55)
+            v   = mpc_cmd.twist.linear.x
+            w   = mpc_cmd.twist.angular.z
+            vec[13] = v
+            # recover steer angle from v and omega
+            if abs(v) > 0.01:
+                vec[14] = float(np.arctan2(w * L, v))
+
+        vec_t = torch.from_numpy(vec)
+        return img_t, vec_t
+
+    # ═══════════════════════════════════════════════════════════════
+    # Reward computation
+    # ═══════════════════════════════════════════════════════════════
+
+    def _compute_reward(self, odom_msg, e_lat: float, e_lon: float, e_yaw: float, e_v: float) -> float:
+        w = self.config['reward']
+        r = 0.0
+
+        r -= w['w_lat'] * (e_lat ** 2)
+        r -= w['w_lon'] * (e_lon ** 2)
+        r -= w['w_yaw'] * (e_yaw ** 2)
+        r -= w['w_v']   * (e_v ** 2)
+
+        if odom_msg is not None:
+            r -= w['w_roll']  * abs(odom_msg.twist.twist.angular.x)
+            r -= w['w_pitch'] * abs(odom_msg.twist.twist.angular.y)
+        r -= w['w_action'] * float(self._prev_action.norm().item())
+
+        RESULT_SUCCESS = 1
+        RESULT_CRASH   = 2
+        RESULT_FALL    = 3
+        if self._pending_result == RESULT_SUCCESS:
+            r += w['success']
+        elif self._pending_result in (RESULT_CRASH, RESULT_FALL):
+            r += w['crash']
+
+        return float(r)
+
+    # ═══════════════════════════════════════════════════════════════
+    # Publish
+    # ═══════════════════════════════════════════════════════════════
+
+    def _publish_cmd(self, mpc_cmd: TwistStamped, residual: torch.Tensor):
+        """Add PPO residual on top of MPC command and publish."""
+        scale = torch.tensor(self.config['action_scale'], dtype=torch.float32)
+        dv, d_steer = (residual.cpu() * scale).tolist()
+
+        if mpc_cmd is not None:
+            v_base   = mpc_cmd.twist.linear.x
+            w_base   = mpc_cmd.twist.angular.z
+        else:
+            v_base, w_base = 0.0, 0.0
+
+        L = self.config.get('wheelbase', 2.55)
+        steer_base = math.atan2(w_base * L, v_base) if abs(v_base) > 0.01 else 0.0
+
+        v_final     = v_base + dv
+        steer_final = steer_base + d_steer
+        w_final     = (v_final / L * math.tan(steer_final)
+                       if abs(v_final) > 0.01 else 0.0)
+
+        msg = TwistStamped()
+        msg.header.stamp   = self.get_clock().now().to_msg()
+        msg.twist.linear.x = float(v_final)
+        msg.twist.angular.z = float(w_final)
+        self.cmd_pub.publish(msg)
+
+    # ═══════════════════════════════════════════════════════════════
+    # Training
+    # ═══════════════════════════════════════════════════════════════
+
+    def _train(self):
+        t0 = time.perf_counter()
+
+        # Compute last value for GAE bootstrap
+        with self._lock:
+            img_msg  = self._img_msg
+            odom_msg = self._odom_msg
+            mpc_cmd  = self._mpc_cmd
+            wp_x     = self._wp_x
+            wp_y     = self._wp_y
+            wp_yaw   = self._wp_yaw
+            wp_v     = self._wp_v
+        img_t, vec_t = self._build_obs(img_msg, odom_msg, mpc_cmd, wp_x, wp_y, wp_yaw, wp_v)
+        with torch.no_grad():
+            _, last_value, _ = self.model(
+                img_t.unsqueeze(0).to(self.device),
+                vec_t.unsqueeze(0).to(self.device),
+                self.recurrent_cell,
+            )
+        self.buffer.calc_advantages(last_value, self.config['gamma'],
+                                    self.config['lamda'])
+
+        cfg   = self.config
+        step  = self.update_count
+        lr    = _polynomial_decay(**cfg['learning_rate_schedule'], step=step)
+        beta  = _polynomial_decay(**cfg['beta_schedule'],          step=step)
+        clip  = _polynomial_decay(**cfg['clip_range_schedule'],    step=step)
+
+        all_stats = []
+        for _ in range(cfg['epochs']):
+            gen = (self.buffer.recurrent_mini_batch_generator(
+                       self.cfg_rec['layer_type'])
+                   if self.use_rec
+                   else self.buffer.mini_batch_generator())
+            for mb in gen:
+                all_stats.append(self._train_mini_batch(mb, lr, clip, beta))
+
+        stats = np.mean(all_stats, axis=0)  # [pi_loss, v_loss, loss, entropy]
+        self.update_count += 1
+
+        # Logging
+        ep_info = self._recent_ep_infos
+        if ep_info:
+            r_mean = np.mean([e['reward'] for e in ep_info])
+            l_mean = np.mean([e['length'] for e in ep_info])
+            self.writer.add_scalar('episode/reward_mean', r_mean, step)
+            self.writer.add_scalar('episode/length_mean', l_mean, step)
+
+        self.writer.add_scalar('losses/policy_loss', stats[0], step)
+        self.writer.add_scalar('losses/value_loss',  stats[1], step)
+        self.writer.add_scalar('losses/loss',        stats[2], step)
+        self.writer.add_scalar('losses/entropy',     stats[3], step)
+        self.writer.add_scalar('training/lr', lr, step)
+
+        elapsed = time.perf_counter() - t0
+        self.get_logger().info(
+            f'[Update {step}] loss={stats[2]:.4f} pi={stats[0]:.4f} '
+            f'v={stats[1]:.4f} H={stats[3]:.4f} '
+            f'lr={lr:.2e} t={elapsed*1000:.0f}ms'
+        )
+
+        if step % cfg['save_interval'] == 0:
+            self._save_checkpoint(step)
+
+    def _train_mini_batch(self, mb: dict, lr: float, clip: float,
+                          beta: float) -> list:
+        seq_len = mb.get('seq_length', 1)
+        dist, value, _ = self.model(
+            mb['imgs'], mb['vecs'],
+            recurrent_cell=(mb['hxs'], mb['cxs'])
+                            if (self.use_rec and mb['hxs'] is not None) else None,
+            sequence_length=seq_len,
+        )
+
+        # Apply loss mask if present (recurrent path)
+        mask = mb.get('loss_mask', None)
+
+        log_probs  = dist.log_prob(mb['actions'])    # (B, act_dim)
+        entropies  = dist.entropy()                  # (B, act_dim)
+
+        if mask is not None:
+            value      = value[mask]
+            log_probs  = log_probs[mask]
+            entropies  = entropies[mask]
+
+        adv = mb['advantages']
+        adv_norm = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        # Expand adv for multi-dim action
+        adv_exp = adv_norm.unsqueeze(-1).expand_as(log_probs)
+
+        old_lp = mb['log_probs']   # already masked on recurrent path
+        ratio  = torch.exp(log_probs - old_lp)
+        surr1  = ratio * adv_exp
+        surr2  = torch.clamp(ratio, 1 - clip, 1 + clip) * adv_exp
+        pi_loss = -torch.min(surr1, surr2).mean()
+
+        ret        = mb['values'] + adv
+        v_clipped  = mb['values'] + (value - mb['values']).clamp(-clip, clip)
+        v_loss     = torch.max((value - ret)**2,
+                               (v_clipped - ret)**2).mean()
+
+        entropy = entropies.mean()
+        loss    = pi_loss + self.config['value_loss_coefficient'] * v_loss \
+                  - beta * entropy
+
+        for pg in self.optimizer.param_groups:
+            pg['lr'] = lr
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                       self.config['max_grad_norm'])
+        self.optimizer.step()
+
+        return [pi_loss.item(), v_loss.item(), loss.item(), entropy.item()]
+
+    # ═══════════════════════════════════════════════════════════════
+    # Checkpoint helpers
+    # ═══════════════════════════════════════════════════════════════
+
+    def _save_checkpoint(self, step: int):
+        path = os.path.join(self.ckpt_dir, f'ppo_{self.run_id}_{step:06d}.pt')
+        torch.save({
+            'step':           step,
+            'model':          self.model.state_dict(),
+            'optimizer':      self.optimizer.state_dict(),
+            'update_count':   self.update_count,
+        }, path)
+        self.get_logger().info(f'Checkpoint saved → {path}')
+
+    def _try_load_checkpoint(self):
+        files = sorted([
+            f for f in os.listdir(self.ckpt_dir)
+            if f.startswith(f'ppo_{self.run_id}') and f.endswith('.pt')
+        ])
+        if not files:
+            return
+        path = os.path.join(self.ckpt_dir, files[-1])
+        ckpt = torch.load(path, map_location=self.device)
+        self.model.load_state_dict(ckpt['model'])
+        self.optimizer.load_state_dict(ckpt['optimizer'])
+        self.update_count = ckpt.get('update_count', 0)
+        self.get_logger().info(f'Checkpoint loaded ← {path}')
+
+    # ── Helpers ───────────────────────────────────────────────────
+
+    def _cell_arrays(self):
+        """Return (hx, cx) numpy arrays for buffer storage."""
+        if not self.use_rec or self.recurrent_cell is None:
+            return None, None
+        if isinstance(self.recurrent_cell, tuple):
+            hx, cx = self.recurrent_cell
+            return hx.squeeze().cpu(), cx.squeeze().cpu()
+        return self.recurrent_cell.squeeze().cpu(), None
+
+
+# ─────────────────────────────────────────────────────────────────
+def main():
+    rclpy.init()
+    node = PPOAgentNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.writer.close()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

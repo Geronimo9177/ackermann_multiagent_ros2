@@ -51,9 +51,23 @@ def generate_launch_description():
             ]
     )
 
+    ppo_node = Node(
+        package='vehicle_controller',
+        executable='ppo_agent',
+        name='ppo_agent',
+        output='screen',
+        parameters=[{
+            'training_mode':    True,
+            'use_ground_truth': use_ground_truth,
+            'run_id':           'speedbump_v1',
+            'checkpoint_dir':   os.path.join(os.path.expanduser('~'), 'ppo_checkpoints'),
+        }]
+    )
+
     return LaunchDescription([
         declare_use_ground_truth,
         webots_launch,
         controller_launch,
-        rl_master_node
+        rl_master_node,
+        ppo_node,
     ])

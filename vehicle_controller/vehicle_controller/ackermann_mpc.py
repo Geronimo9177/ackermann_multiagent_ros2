@@ -124,7 +124,7 @@ class AckermannMPC(Node):
                                 self.reset_cb, 1)
 
         # ── Publishers ───────────────────────────────────────────────
-        self.cmd_pub            = self.create_publisher(TwistStamped,      '/cmd_vel',             10)
+        self.cmd_pub            = self.create_publisher(TwistStamped,       '/cmd_vel_mpc',         10)
         self.debug_pub          = self.create_publisher(Float64MultiArray,  '/mpc/debug',           10)
         self.predicted_path_pub = self.create_publisher(Path,               '/mpc/predicted_path',  10)
         self.success_pub        = self.create_publisher(Bool, '/mpc/success', 1)

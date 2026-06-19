@@ -19,7 +19,6 @@
 #include <webots/camera.h>
 #include <webots/robot.h>
 #include <webots/vehicle/driver.h>
-
 #include <webots/supervisor.h>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
@@ -84,8 +83,7 @@ private:
 
   WbFieldRef trans_field_;
   WbFieldRef rot_field_;
-
-  WbNodeRef viewpoint_node_;
+  WbNodeRef  viewpoint_node_;
 
   // ── Sensor timing ────────────────────────────────────────────
   double last_imu_pub_{0.0};
@@ -108,24 +106,40 @@ private:
   std::normal_distribution<double> acc_noise_;
   std::normal_distribution<double> mag_noise_;
 
-  // ── RL sync ──────────────────────────────────────────────────────
-  static constexpr double RL_PERIOD = 0.05;  // 50ms
+  // ── RL sync ──────────────────────────────────────────────────
+  static constexpr double RL_PERIOD = 0.05;   // 50 ms sim time
 
-  bool   system_ready_{false};
-  bool   training_mode_{false};
-  double last_rl_trigger_{-1.0};
-  double t_trigger_{-1.0};
-  bool   waiting_cmd_{false};
-  
+  // Two-phase state machine:
+  //   RUNNING    → sim runs FAST until RL_PERIOD elapses
+  //   WAIT_MPC   → trigger sent, sim in REAL_TIME, waiting for MPC /cmd_vel_mpc
+  //   WAIT_PPO   → MPC cmd received, sim PAUSED, waiting for PPO /cmd_vel
+  enum class SyncState { RUNNING, WAIT_MPC, WAIT_PPO };
+
+  bool      system_ready_{false};
+  bool      training_mode_{false};
+  SyncState sync_state_{SyncState::RUNNING};
+  double    last_rl_trigger_{-1.0};
+
+  // Timestamps to detect *new* commands arriving after our trigger
+  int64_t trigger_stamp_ns_{0};
+  int64_t last_mpc_stamp_ns_{0};   // stamp of last /cmd_vel_mpc seen
+  int64_t last_ppo_stamp_ns_{0};   // stamp of last /cmd_vel seen
+
+  // Safety timeouts (wall-clock milliseconds)
+  static constexpr int MPC_TIMEOUT_MS = 300;   // max wait for MPC
+  static constexpr int PPO_TIMEOUT_MS = 30000;   // max wait for PPO (training)
+
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   start_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   reset_sub_;
-  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr    rl_trigger_pub_;
 
-  int64_t last_cmd_stamp_ns_{0};
-  int64_t trigger_stamp_ns_{0};
+  // Intermediate MPC command (arrives on /cmd_vel_mpc)
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr mpc_cmd_sub_;
+
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr    rl_trigger_pub_;
 
   // ── Methods ──────────────────────────────────────────────────
   void cmdVelCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
+  void mpcCmdCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void publishImu();
   void publishMag();
   void publishGps();
@@ -134,8 +148,12 @@ private:
   std::array<double, 4> publishJointStates(double dt);
   void updateOdometry(double lv, double rv,
                       double phi_l, double phi_r, double dt);
+
+  // Spin-wait helper: spins ROS callbacks until predicate() is true or
+  // wall-clock deadline is exceeded.  Returns true if predicate satisfied.
+  template<typename Pred>
+  bool spinUntil(Pred predicate, int timeout_ms);
 };
 
 }  // namespace vehicle_webots
-
 #endif
