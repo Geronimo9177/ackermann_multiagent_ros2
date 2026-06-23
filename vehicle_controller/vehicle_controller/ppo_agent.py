@@ -29,20 +29,23 @@ from cv_bridge import CvBridge
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32, Float64MultiArray
+from std_msgs.msg import Int32, Float64MultiArray, Bool
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TwistStamped
-from std_msgs.msg import Bool
 from tf_transformations import euler_from_quaternion
 from torch.utils.tensorboard import SummaryWriter
 
-from ppo.config import CONFIG
-from ppo.model import ActorCriticModel
-from ppo.buffer import Buffer
+from .ppo.config import CONFIG
+from .ppo.model import ActorCriticModel
+from .ppo.buffer import Buffer
 
 
-def _polynomial_decay(initial, final, max_steps, power, step):
+def _polynomial_decay(initial, final, max_steps=None, power=1.0, step=0, max_decay_steps=None):
+    if max_steps is None:
+        max_steps = max_decay_steps
+    if max_steps is None:
+        raise ValueError('max_steps or max_decay_steps must be provided')
     if step >= max_steps:
         return final
     return (initial - final) * ((1 - step / max_steps) ** power) + final
@@ -102,19 +105,17 @@ class PPOAgentNode(Node):
         self._ep_reward       = 0.0
         self._ep_length       = 0
         self._recent_ep_infos = deque(maxlen=100)
+        self._control_step = 0
 
         # ── Observation cache ─────────────────────────────────────
         # These are updated asynchronously by subscriber callbacks
-        self._img_msg:   Image      = None
-        self._odom_msg:  Odometry   = None
+        self._img_msg:   Image       = None
+        self._odom_msg:  Odometry    = None
         self._mpc_cmd:   TwistStamped = None
         self._lock       = threading.Lock()
 
         self.bridge = CvBridge()
-
-        img_h = self.config['img_height']
-        img_w = self.config['img_width']
-        self._blank_img = np.zeros((img_h, img_w), dtype=np.float32)
+        self._blank_img = np.zeros((self.config['img_height'], self.config['img_width']), dtype=np.float32)
 
         self._e_lat = 0.0
         self._e_lon = 0.0
@@ -124,10 +125,24 @@ class PPOAgentNode(Node):
         self._wp_y   = 0.0
         self._wp_yaw = 0.0
         self._wp_v   = 0.0
+        self._v_z   = 0.0
+
+        # Memory of final control signal commands for Slew Rate tracking
+        self._prev_final_v          = 0.0
+        self._prev_final_steer      = 0.0
+        self._prev_prev_final_v     = 0.0
+        self._prev_prev_final_steer = 0.0
+
+        self._last_v_cmd_mpc = 0.0
+        self._last_steer_mpc = 0.0
+
+        self._cached_reward = {
+            'total': 0.0, 'lat': 0.0, 'lon': 0.0, 'yaw': 0.0,
+            'v': 0.0, 'slew': 0.0, 'rates_gated': 0.0, 'vz': 0.0,
+            'terminal': 0.0
+        }
 
         # ── Pending reward/done ────────────────────────────────────
-        # rl_master publishes the episode result AFTER the step that ended it.
-        # We buffer it and apply it to the next store() call.
         self._pending_result: int = None   # RESULT_* from rl_master
         self._episode_done       = False
 
@@ -146,8 +161,6 @@ class PPOAgentNode(Node):
         # ── Subscribers ───────────────────────────────────────────
         self.create_subscription(Image,       '/camera/segmentation',
                                  self._img_cb,  10)
-        self.create_subscription(TwistStamped, '/cmd_vel_mpc',
-                                 self._mpc_cmd_cb, 1)
         self.create_subscription(Int32,       '/rl/result',
                                  self._result_cb,  1)
         self.create_subscription(Bool,        '/sim/reset',
@@ -163,6 +176,8 @@ class PPOAgentNode(Node):
 
         # ── Publishers ────────────────────────────────────────────
         self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 1)
+        self.metrics_pub = self.create_publisher(Float64MultiArray, '/ppo/metrics', 10)
+        self.reward_terms_pub = self.create_publisher(Float64MultiArray, '/ppo/reward_terms', 10)
 
         self.get_logger().info('PPO agent ready.')
 
@@ -179,105 +194,140 @@ class PPOAgentNode(Node):
             self._odom_msg = msg
     
     def _mpc_debug_cb(self, msg: Float64MultiArray):
-        if len(msg.data) < 6:
+        if len(msg.data) < 11:
             return
+        
         x_now, y_now, yaw_now = msg.data[0], msg.data[1], msg.data[2]
         x_ref, y_ref, yaw_ref = msg.data[3], msg.data[4], msg.data[5]
-        v_ref = float(msg.data[7])
+        v_cmd   = float(msg.data[6])
+        v_ref   = float(msg.data[7])  
+        steer   = float(msg.data[8])
 
+        self._last_v_cmd_mpc = v_cmd
+        self._last_steer_mpc = steer
+
+        # Positional errors in the Frenet frame
         dx = x_now - x_ref
         dy = y_now - y_ref
-
         e_lat = abs(-math.sin(yaw_ref) * dx + math.cos(yaw_ref) * dy)
         e_lon = abs( math.cos(yaw_ref) * dx + math.sin(yaw_ref) * dy)
         e_yaw = abs(math.atan2(math.sin(yaw_now - yaw_ref), math.cos(yaw_now - yaw_ref)))
 
         with self._lock:
-            self._e_lat = e_lat
-            self._e_lon = e_lon
-            self._e_yaw = e_yaw
-            self._wp_x    = x_ref
-            self._wp_y    = y_ref
-            self._wp_yaw  = yaw_ref
-            self._wp_v    = v_ref
+            odom_msg = self._odom_msg
+        
+        e_v, v_z, roll_w_deg, pitch_w_deg = 0.0, 0.0, 0.0, 0.0
+        if odom_msg is not None:
+                v_now       = math.hypot(odom_msg.twist.twist.linear.x,
+                                     odom_msg.twist.twist.linear.y)
+                e_v         = abs(v_now - v_ref)
+                v_z         = abs(odom_msg.twist.twist.linear.z)
+                roll_w_deg  = math.degrees(abs(odom_msg.twist.twist.angular.x))
+                pitch_w_deg = math.degrees(abs(odom_msg.twist.twist.angular.y))
 
-            if self._odom_msg is not None:
-                v_now = self._odom_msg.twist.twist.linear.x
-                self._e_v = abs(v_now - v_ref)
+        # Slew Rate 
+        dv_action = self._prev_final_v - self._prev_prev_final_v
+        dsteer_action = self._prev_final_steer - self._prev_prev_final_steer
 
+        # Angular velocity
+        w = self.config['reward']
+        pw_gated = pitch_w_deg if pitch_w_deg > w['deadband_pitch_deg'] else 0.0
+        rw_gated = roll_w_deg if roll_w_deg > w['deadband_roll_deg']  else 0.0
+            
+        # Term reward
+        r_lat   = -w['w_lat']        * (e_lat ** 2)
+        r_lon   = -w['w_lon']        * (e_lon ** 2)
+        r_yaw   = -w['w_yaw']        * (e_yaw ** 2)
+        r_v     = -w['w_v']          * (e_v   ** 2)
+        r_slew  = -w['w_dv']         * (dv_action ** 2) - w['w_dsteer'] * (dsteer_action ** 2)
+        r_rates = -w['w_pitch_rate'] * pw_gated - w['w_roll_rate'] * rw_gated
+        r_vz    = -w['w_vz']         * v_z
+
+        with self._lock:
+            self._wp_x, self._wp_y, self._wp_yaw, self._wp_v = x_ref, y_ref, yaw_ref, v_ref
+            self._cached_reward = {
+                'total':       r_lat + r_lon + r_yaw + r_v + r_slew + r_rates + r_vz,
+                'lat':         r_lat,
+                'lon':         r_lon,
+                'yaw':         r_yaw,
+                'v':           r_v,
+                'slew':        r_slew,
+                'rates_gated': r_rates,
+                'vz':          r_vz,
+                'terminal':    0.0,
+            }
+
+        self._main_loop(v_cmd, steer)
+        
     def _result_cb(self, msg: Int32):
         """Episode result from rl_master (0=running,1=success,2=crash,3=fall)."""
         result = msg.data
-        if result != 0:   # episode ended
-            self._pending_result = result
-            self._episode_done   = True
+        if result == 0:
+            return
+
+        self._pending_result = result
+        self._episode_done = True
+
+        self._pending_result = result
+        self._episode_done   = True
+
+        w = self.config['reward']
+        if result == 1:
+            terminal = w['success']
+        elif result in (2, 3):
+            terminal = w['crash']
+        else:
+            terminal = 0.0
+        
+        with self._lock:
+            self._cached_reward['terminal'] = terminal
+            self._cached_reward['total']   += terminal
+        
+        if self._have_prev and self.training_mode:
+            self._store_transition(done=True)
+
+        self._have_prev  = False
+        self._ep_reward  = 0.0
+        self._ep_length  = 0
+        self._pending_result = None
+        self._episode_done   = False
 
     def _reset_cb(self, _msg: Bool):
         """Reset recurrent state and episode tracking."""
         hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
-        self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) \
-                              else hxs
-        self._have_prev       = False
-        self._ep_reward       = 0.0
-        self._ep_length       = 0
-        self._episode_done    = False
-        self._pending_result  = None
+        self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) else hxs
+        self._have_prev = False
+        self._prev_final_v          = 0.0
+        self._prev_final_steer      = 0.0
+        self._prev_prev_final_v     = 0.0
+        self._prev_prev_final_steer = 0.0
 
     # ═══════════════════════════════════════════════════════════════
-    # Main control callback (called once per sim step, sim is PAUSED)
+    # Main control loop (called once per sim step, sim is PAUSED)
     # ═══════════════════════════════════════════════════════════════
 
-    def _mpc_cmd_cb(self, msg: TwistStamped):
+    def _main_loop(self, v_cmd_mpc: float, steer_mpc: float):
         """
         1. Build current observation
-        2. (If we have a previous transition) compute reward and store it
+        2. Store previous transition (obs, action, log_prob, value, reward)
         3. Run forward pass → publish /cmd_vel
         4. Cache (obs, action, log_prob, value) for next step
         5. If buffer is full → train
         """
-        # ── 1. Snapshot observations ──────────────────────────────
+        # ── Snapshot observations ──────────────────────────────
         with self._lock:
-            self._mpc_cmd = msg
             img_msg  = self._img_msg
             odom_msg = self._odom_msg
-            mpc_cmd  = self._mpc_cmd
-            e_lat    = self._e_lat
-            e_lon    = self._e_lon
-            e_yaw    = self._e_yaw
-            e_v      = self._e_v
-            wp_x     = self._wp_x
-            wp_y     = self._wp_y
-            wp_yaw   = self._wp_yaw
-            wp_v     = self._wp_v
+            wp_x, wp_y, wp_yaw, wp_v = self._wp_x, self._wp_y, self._wp_yaw, self._wp_v
 
-        img_t, vec_t = self._build_obs(img_msg, odom_msg, mpc_cmd, wp_x, wp_y, wp_yaw, wp_v)
+        img_t, vec_t = self._build_obs(img_msg, odom_msg, v_cmd_mpc, steer_mpc,
+                                       wp_x, wp_y, wp_yaw, wp_v)
 
-        # ── 2. Store previous transition ──────────────────────────
+        # ── Store previous transition ──────────────────────────
         if self._have_prev and self.training_mode:
-            reward = self._compute_reward(odom_msg, e_lat, e_lon, e_yaw, e_v)
-            done   = self._episode_done
+            self._store_transition(done=False)
 
-            hx, cx = self._cell_arrays()
-            self.buffer.store(
-                img=self._prev_img, vec=self._prev_vec,
-                action=self._prev_action, log_prob=self._prev_log_prob,
-                value=self._prev_value,   reward=reward,
-                done=done, hx=hx, cx=cx,
-            )
-            self._ep_reward += reward
-            self._ep_length += 1
-
-            if done:
-                self._recent_ep_infos.append({
-                    'reward': self._ep_reward,
-                    'length': self._ep_length,
-                })
-                self._ep_reward = 0.0
-                self._ep_length = 0
-                self._episode_done   = False
-                self._pending_result = None
-
-        # ── 3. Forward pass ───────────────────────────────────────
+        # ── Forward pass ───────────────────────────────────────
         with torch.no_grad():
             img_d = img_t.unsqueeze(0).to(self.device)
             vec_d = vec_t.unsqueeze(0).to(self.device)
@@ -289,23 +339,53 @@ class PPOAgentNode(Node):
             if self.training_mode:
                 action = dist.sample()
             else:
-                action = dist.mean            # deterministic at test time
+                action = dist.mean             # deterministic at test time
 
             log_prob = dist.log_prob(action)  # (1, action_size)
 
-        # ── 4. Publish /cmd_vel (MPC base + PPO residual) ─────────
-        self._publish_cmd(mpc_cmd, action.squeeze(0))
+        # ── Publish /cmd_vel (MPC base + PPO residual) ─────────
+        self._publish_cmd(v_cmd_mpc, steer_mpc, action.squeeze(0))
 
-        # ── 5. Cache for next step ────────────────────────────────
+        # ── Cache for next step ────────────────────────────────
         self._prev_img      = img_t
         self._prev_vec      = vec_t
         self._prev_action   = action.squeeze(0).cpu()
         self._prev_log_prob = log_prob.squeeze(0).cpu()
         self._prev_value    = value.squeeze(0).cpu()
         self._have_prev     = True
+    
+    def _store_transition(self, done: bool):
+        """Helper function to store transitions, publish telemetry, and trigger training."""
+        with self._lock:
+            terms = dict(self._cached_reward)
+        reward = terms['total']
 
-        # ── 6. Train if buffer is full ────────────────────────────
-        if self.training_mode and self.buffer.full():
+        reward_terms_msg = Float64MultiArray()
+        reward_terms_msg.data = [
+            float(self._control_step), float(terms['total']), float(terms['lat']),
+            float(terms['lon']), float(terms['yaw']), float(terms['v']),
+            float(terms['slew']), float(terms['rates_gated']),  float(terms['vz']),
+            float(terms['terminal'])
+        ]
+        self.reward_terms_pub.publish(reward_terms_msg)
+        self._control_step += 1
+
+        hx, cx = self._cell_arrays()
+        self.buffer.store(
+            img=self._prev_img, vec=self._prev_vec,
+            action=self._prev_action, log_prob=self._prev_log_prob,
+            value=self._prev_value,   reward=reward,
+            done=done, hx=hx, cx=cx,
+        )
+        self._ep_reward += reward
+        self._ep_length += 1
+
+        if done:
+            self._recent_ep_infos.append({
+                'reward': self._ep_reward, 'length': self._ep_length
+            })
+
+        if self.buffer.full():
             self._train()
             self.buffer.reset_step()
 
@@ -313,7 +393,9 @@ class PPOAgentNode(Node):
     # Observation builder
     # ═══════════════════════════════════════════════════════════════
 
-    def _build_obs(self, img_msg, odom_msg, mpc_cmd, wp_x=0., wp_y=0., wp_yaw=0., wp_v=0.):
+    def _build_obs(self, img_msg, odom_msg,
+                   v_cmd_mpc: float, steer_mpc: float,
+                   wp_x=0., wp_y=0., wp_yaw=0., wp_v=0.):
         """Returns (img_tensor [1,H,W], vec_tensor [vec_dim])."""
         cfg = self.config
         H, W = cfg['img_height'], cfg['img_width']
@@ -336,90 +418,41 @@ class PPOAgentNode(Node):
         vec = np.zeros(cfg['vec_obs_size'], dtype=np.float32)
 
         if odom_msg is not None:
-            # Velocities
             t = odom_msg.twist.twist
-            vec[0] = t.linear.x
-            vec[1] = t.linear.y
-            vec[2] = t.linear.z
-            vec[3] = t.angular.x   # wx
-            vec[4] = t.angular.y   # wy
-            vec[5] = t.angular.z   # wz
+            vec[0], vec[1], vec[2] = t.linear.x, t.linear.y, t.linear.z
+            vec[3], vec[4], vec[5] = t.angular.x, t.angular.y, t.angular.z
             
-            # Pose
             p = odom_msg.pose.pose
-            vec[6] = p.position.x
-            vec[7] = p.position.y
+            vec[6], vec[7] = p.position.x, p.position.y
             q = p.orientation
             _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
             vec[8] = yaw
 
-        vec[9]  = wp_x
-        vec[10] = wp_y
-        vec[11] = wp_yaw
-        vec[12] = wp_v
+        vec[9], vec[10], vec[11], vec[12] = wp_x, wp_y, wp_yaw, wp_v
+        vec[13] = v_cmd_mpc
+        vec[14] = steer_mpc
 
-        if mpc_cmd is not None:
-            L = self.config.get('wheelbase', 2.55)
-            v   = mpc_cmd.twist.linear.x
-            w   = mpc_cmd.twist.angular.z
-            vec[13] = v
-            # recover steer angle from v and omega
-            if abs(v) > 0.01:
-                vec[14] = float(np.arctan2(w * L, v))
-
-        vec_t = torch.from_numpy(vec)
-        return img_t, vec_t
-
-    # ═══════════════════════════════════════════════════════════════
-    # Reward computation
-    # ═══════════════════════════════════════════════════════════════
-
-    def _compute_reward(self, odom_msg, e_lat: float, e_lon: float, e_yaw: float, e_v: float) -> float:
-        w = self.config['reward']
-        r = 0.0
-
-        r -= w['w_lat'] * (e_lat ** 2)
-        r -= w['w_lon'] * (e_lon ** 2)
-        r -= w['w_yaw'] * (e_yaw ** 2)
-        r -= w['w_v']   * (e_v ** 2)
-
-        if odom_msg is not None:
-            r -= w['w_roll']  * abs(odom_msg.twist.twist.angular.x)
-            r -= w['w_pitch'] * abs(odom_msg.twist.twist.angular.y)
-        r -= w['w_action'] * float(self._prev_action.norm().item())
-
-        RESULT_SUCCESS = 1
-        RESULT_CRASH   = 2
-        RESULT_FALL    = 3
-        if self._pending_result == RESULT_SUCCESS:
-            r += w['success']
-        elif self._pending_result in (RESULT_CRASH, RESULT_FALL):
-            r += w['crash']
-
-        return float(r)
+        return img_t, torch.from_numpy(vec)
 
     # ═══════════════════════════════════════════════════════════════
     # Publish
     # ═══════════════════════════════════════════════════════════════
 
-    def _publish_cmd(self, mpc_cmd: TwistStamped, residual: torch.Tensor):
+    def _publish_cmd(self, v_cmd_mpc: float, steer_mpc: float, residual: torch.Tensor):
         """Add PPO residual on top of MPC command and publish."""
         scale = torch.tensor(self.config['action_scale'], dtype=torch.float32)
         dv, d_steer = (residual.cpu() * scale).tolist()
 
-        if mpc_cmd is not None:
-            v_base   = mpc_cmd.twist.linear.x
-            w_base   = mpc_cmd.twist.angular.z
-        else:
-            v_base, w_base = 0.0, 0.0
+        L           = self.config.get('wheelbase', 2.55)
+        v_final     = v_cmd_mpc + dv
+        steer_final = steer_mpc + d_steer
+        w_final     = (v_final / L * math.tan(steer_final)) if abs(v_final) > 0.01 else 0.0
 
-        L = self.config.get('wheelbase', 2.55)
-        steer_base = math.atan2(w_base * L, v_base) if abs(v_base) > 0.01 else 0.0
 
-        v_final     = v_base + dv
-        steer_final = steer_base + d_steer
-        w_final     = (v_final / L * math.tan(steer_final)
-                       if abs(v_final) > 0.01 else 0.0)
+        self._prev_prev_final_v = self._prev_final_v
+        self._prev_prev_final_steer = self._prev_final_steer
+        self._prev_final_v = v_final
+        self._prev_final_steer = steer_final
 
         msg = TwistStamped()
         msg.header.stamp   = self.get_clock().now().to_msg()
@@ -438,12 +471,12 @@ class PPOAgentNode(Node):
         with self._lock:
             img_msg  = self._img_msg
             odom_msg = self._odom_msg
-            mpc_cmd  = self._mpc_cmd
-            wp_x     = self._wp_x
-            wp_y     = self._wp_y
-            wp_yaw   = self._wp_yaw
-            wp_v     = self._wp_v
-        img_t, vec_t = self._build_obs(img_msg, odom_msg, mpc_cmd, wp_x, wp_y, wp_yaw, wp_v)
+            wp_x, wp_y, wp_yaw, wp_v = self._wp_x, self._wp_y, self._wp_yaw, self._wp_v
+
+        img_t, vec_t = self._build_obs(img_msg, odom_msg,
+                                        self._last_v_cmd_mpc, self._last_steer_mpc,
+                                        wp_x, wp_y, wp_yaw, wp_v)
+
         with torch.no_grad():
             _, last_value, _ = self.model(
                 img_t.unsqueeze(0).to(self.device),
@@ -478,6 +511,9 @@ class PPOAgentNode(Node):
             l_mean = np.mean([e['length'] for e in ep_info])
             self.writer.add_scalar('episode/reward_mean', r_mean, step)
             self.writer.add_scalar('episode/length_mean', l_mean, step)
+        else:
+            r_mean = float('nan')
+            l_mean = float('nan')
 
         self.writer.add_scalar('losses/policy_loss', stats[0], step)
         self.writer.add_scalar('losses/value_loss',  stats[1], step)
@@ -491,6 +527,20 @@ class PPOAgentNode(Node):
             f'v={stats[1]:.4f} H={stats[3]:.4f} '
             f'lr={lr:.2e} t={elapsed*1000:.0f}ms'
         )
+
+        metrics_msg = Float64MultiArray()
+        metrics_msg.data = [
+            float(step),
+            float(r_mean),
+            float(l_mean),
+            float(stats[0]),
+            float(stats[1]),
+            float(stats[2]),
+            float(stats[3]),
+            float(lr),
+            float(elapsed * 1000.0),
+        ]
+        self.metrics_pub.publish(metrics_msg)
 
         if step % cfg['save_interval'] == 0:
             self._save_checkpoint(step)

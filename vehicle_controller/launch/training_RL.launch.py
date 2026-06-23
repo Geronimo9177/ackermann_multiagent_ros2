@@ -2,6 +2,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -9,10 +10,16 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 def generate_launch_description():
 
     use_ground_truth = LaunchConfiguration('use_ground_truth')
+    run_ppo_debug_visualizer = LaunchConfiguration('run_ppo_debug_visualizer')
     
     declare_use_ground_truth = DeclareLaunchArgument(
         'use_ground_truth',
         default_value='true', 
+    )
+
+    declare_run_ppo_debug_visualizer = DeclareLaunchArgument(
+        'run_ppo_debug_visualizer',
+        default_value='true',
     )
 
     # Rutas de los paquetes
@@ -64,10 +71,20 @@ def generate_launch_description():
         }]
     )
 
+    ppo_debug_visualizer_node = Node(
+        package='vehicle_controller',
+        executable='ppo_debug_visualizer',
+        name='ppo_debug_visualizer',
+        output='screen',
+        condition=IfCondition(run_ppo_debug_visualizer)
+    )
+
     return LaunchDescription([
         declare_use_ground_truth,
+        declare_run_ppo_debug_visualizer,
         webots_launch,
         controller_launch,
         rl_master_node,
         ppo_node,
+        ppo_debug_visualizer_node,
     ])

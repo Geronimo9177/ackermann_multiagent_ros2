@@ -68,15 +68,24 @@ CONFIG = {
 
     # ── Reward weights ────────────────────────────────────────────
     "reward": {
-        "w_lat":    1.0,    # lateral error penalty
-        "w_lon":    0.3,    # longitudinal error penalty
-        "w_yaw":    0.8,    # yaw error penalty
-        "w_v":      0.2,    # velocity error penalty
-        "w_roll":   2.0,    # roll acceleration penalty (speedbumps)
-        "w_pitch":  2.0,    # pitch acceleration penalty (speedbumps)
-        "w_action": 0.05,    # action magnitude regularization
-        "success":  50.0,   # bonus for completing the route
-        "crash":   -50.0,   # penalty for crash / fall
+        "w_lat":   2.5,
+        "w_lon":   0.01,
+        "w_yaw":   1.0,    
+        "w_v":     0.01,
+
+        "w_roll_rate":  0.5,
+        "w_pitch_rate": 0.5,
+
+        "deadband_pitch_deg":  4.0,
+        "deadband_roll_deg": 6.0,
+
+        "w_vz": 1.0,
+
+        "w_dv":     0.5,   
+        "w_dsteer": 1.0,
+        
+        "success":  50.0,
+        "crash":   -50.0
     },
 
     # ── Checkpoint ────────────────────────────────────────────────

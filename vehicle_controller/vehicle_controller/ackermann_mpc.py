@@ -98,7 +98,7 @@ class AckermannMPC(Node):
         self.s_search      = 3
 
         # Goal completion criteria
-        self.goal_tolerance  = 0.10
+        self.goal_tolerance  = 0.50
         self.route_completed = False
 
         # ── Subscribers ──────────────────────────────────────────────
@@ -106,7 +106,6 @@ class AckermannMPC(Node):
             self.fused_received = True
             self.create_subscription(Odometry, '/ground_truth_odom',
                                 self.odom_cb, 10)
-  
         else:
             self.create_subscription(Odometry, '/odometry/local',
                                 self.odom_cb, 10)

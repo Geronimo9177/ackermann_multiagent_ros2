@@ -32,6 +32,7 @@ setup(
         'topp = vehicle_controller.topp:main',
         'trajectory_publisher = vehicle_controller.trajectory_publisher:main',
         'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
+        'ppo_debug_visualizer = vehicle_controller.ppo_debug_visualizer:main',
         'rl_master = vehicle_controller.rl_master:main',
         'ppo_agent = vehicle_controller.ppo_agent:main',
     ],
