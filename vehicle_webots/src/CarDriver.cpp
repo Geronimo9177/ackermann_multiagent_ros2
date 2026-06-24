@@ -474,13 +474,17 @@ void CarDriver::publishCamera()
     sensor_msgs::msg::Image msg;
     msg.header.stamp    = node_->get_clock()->now();
     msg.header.frame_id = "camera_link";
-    msg.width    = cam_width_;
-    msg.height   = cam_height_;
-    msg.encoding = "mono8";
-    msg.step     = cam_width_;
-    msg.data.resize(cam_pixels_);
-    for (int i = 0; i < cam_pixels_; ++i)
-        msg.data[i] = seg[i * 4 + 2];
+    msg.width           = cam_width_;
+    msg.height          = cam_height_;
+    msg.encoding        = "8UC2"
+    msg.step            = cam_width_ * 2;
+    msg.data.resize(cam_pixels_ * 2, 0);
+
+    for (int i = 0; i < cam_pixels_; ++i) {
+        unsigned char cls = seg[i * 4 + 2];  // class in the red channel
+        msg.data[i * 2 + 0] = (cls == 1) ? 255 : 0;  // channel 0: curbs
+        msg.data[i * 2 + 1] = (cls == 2) ? 255 : 0;  // channel 1: speedbumps
+    }
     seg_pub_->publish(msg);
 }
 

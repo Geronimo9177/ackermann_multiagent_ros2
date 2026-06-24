@@ -402,11 +402,9 @@ class PPOAgentNode(Node):
 
         # ── Image ─────────────────────────────────────────────────
         if img_msg is not None:
-            try:
-                raw = self.bridge.imgmsg_to_cv2(img_msg, 'mono8')
-                raw = cv2.resize(raw, (W, H)).astype(np.float32) / 255.0
-            except Exception:
-                raw = self._blank_img.copy()
+            raw = self.bridge.imgmsg_to_cv2(img_msg, 'mono8')
+            raw = cv2.resize(raw, (W, H)).astype(np.float32) / 255.0
+
         else:
             raw = self._blank_img.copy()
 

@@ -6,8 +6,8 @@ Set use_recurrence = True to switch to recurrent PPO (LSTM).
 CONFIG = {
     # ── Observation dimensions ────────────────────────────────────
     # Image: (1, H, W) — mono8 segmentation channel first
-    "img_height": 64,
-    "img_width":  64,
+    "img_height": 96,
+    "img_width":  128,
     # Vector obs: [vx, vy, vz, wx, wy, wz, pos_x, pos_y, yaw,
     #              wp_x, wp_y, wp_yaw, wp_v, mpc_v, mpc_steer]
     "vec_obs_size": 15,
@@ -81,8 +81,8 @@ CONFIG = {
 
         "w_vz": 1.0,
 
-        "w_dv":     0.5,   
-        "w_dsteer": 1.0,
+        "w_dv":     0.25,   
+        "w_dsteer": 0.5,
         
         "success":  50.0,
         "crash":   -50.0
