@@ -23,7 +23,7 @@ static constexpr double MAX_STEERING = 0.5;
 static constexpr double IMU_PERIOD = 0.01;
 static constexpr double MAG_PERIOD = 0.02;
 static constexpr double GPS_PERIOD = 0.1;
-static constexpr double CAM_PERIOD = 0.03;
+static constexpr double CAM_PERIOD = 0.05;
 
 // ── IMU noise ─────────────────────────────────────────────────────
 static constexpr double GYR_STDDEV    = 0.000864;
@@ -476,15 +476,17 @@ void CarDriver::publishCamera()
     msg.header.frame_id = "camera_link";
     msg.width           = cam_width_;
     msg.height          = cam_height_;
-    msg.encoding        = "8UC2"
+    msg.encoding        = "8UC2";
     msg.step            = cam_width_ * 2;
     msg.data.resize(cam_pixels_ * 2, 0);
 
     for (int i = 0; i < cam_pixels_; ++i) {
-        unsigned char cls = seg[i * 4 + 2];  // class in the red channel
-        msg.data[i * 2 + 0] = (cls == 1) ? 255 : 0;  // channel 0: curbs
-        msg.data[i * 2 + 1] = (cls == 2) ? 255 : 0;  // channel 1: speedbumps
-    }
+    unsigned char r = seg[i * 4 + 2];  // R: curbs
+    unsigned char g = seg[i * 4 + 1];  // G: speedbumps
+
+    msg.data[i * 2 + 0] = (r > 128) ? 255 : 0;
+    msg.data[i * 2 + 1] = (g > 128) ? 255 : 0;
+}
     seg_pub_->publish(msg);
 }
 

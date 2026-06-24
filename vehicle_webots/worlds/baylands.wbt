@@ -88,7 +88,7 @@ Solid {
 Solid {
   translation 0 0 -2.45
   name "curbs"
-  recognitionColors [ 0.25 0 0 ]
+  recognitionColors [ 1 0 0 ]
 
   children [
     CadShape {
@@ -107,7 +107,7 @@ Solid {
 Solid {
   translation 0 0 -2.45
   name "speedbumps"
-  recognitionColors [ 0.5 0 0 ]
+  recognitionColors [ 0 1 0 ]
 
   children [
     CadShape {

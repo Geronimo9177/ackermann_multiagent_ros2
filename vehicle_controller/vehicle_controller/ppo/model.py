@@ -43,27 +43,37 @@ class ActorCriticModel(nn.Module):
         self.action_scale    = torch.tensor(config["action_scale"], dtype=torch.float32)
         self.action_bias     = torch.tensor(config["action_bias"],  dtype=torch.float32)
 
+        img_ch  = config.get("img_channels", 2)
         img_h   = config["img_height"]
         img_w   = config["img_width"]
         vec_dim = config["vec_obs_size"]
         cnn_ch  = config["cnn_channels"]       # [32, 64, 64]
 
         # ── CNN (segmentation image) ──────────────────────────────
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1,       cnn_ch[0], kernel_size=8, stride=4), nn.ReLU(),
-            nn.Conv2d(cnn_ch[0], cnn_ch[1], kernel_size=4, stride=2), nn.ReLU(),
-            nn.Conv2d(cnn_ch[1], cnn_ch[2], kernel_size=3, stride=1), nn.ReLU(),
+        conv_trunk = nn.Sequential(
+            nn.Conv2d(img_ch,      cnn_ch[0], kernel_size=5, stride=2, padding=2), nn.ReLU(),
+            nn.Conv2d(cnn_ch[0],   cnn_ch[1], kernel_size=3, stride=2, padding=1), nn.ReLU(),
+            nn.Conv2d(cnn_ch[1],   cnn_ch[2], kernel_size=3, stride=2, padding=1), nn.ReLU(),
+            nn.Conv2d(cnn_ch[2],   cnn_ch[2], kernel_size=3, stride=2, padding=1), nn.ReLU(),
         )
+        # Calculamos el tamaño espacial aplanado de forma automática (da 3072)
         with torch.no_grad():
-            dummy = torch.zeros(1, 1, img_h, img_w)
-            cnn_out = int(np.prod(self.cnn(dummy).shape[1:]))
-        self.cnn_out_size = cnn_out
+            dummy = torch.zeros(1, img_ch, img_h, img_w)
+            spatial_flat_size = int(np.prod(conv_trunk(dummy).shape[1:]))
+
+        self.cnn = nn.Sequential(
+            conv_trunk,
+            nn.Flatten(),
+            nn.Linear(spatial_flat_size, 512), 
+            nn.ReLU()
+        )
+        self.cnn_out_size = 512
 
         # Orthogonal init for conv layers
-        for layer in self.cnn:
-            if isinstance(layer, nn.Conv2d):
-                nn.init.orthogonal_(layer.weight, np.sqrt(2))
-                nn.init.constant_(layer.bias, 0)
+        for module in self.cnn.modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                nn.init.orthogonal_(module.weight, np.sqrt(2))
+                nn.init.constant_(module.bias, 0)
 
         # ── Vector encoder ────────────────────────────────────────
         self.vec_encoder = nn.Sequential(
@@ -73,7 +83,7 @@ class ActorCriticModel(nn.Module):
         nn.init.orthogonal_(self.vec_encoder[0].weight, np.sqrt(2))
         nn.init.orthogonal_(self.vec_encoder[2].weight, np.sqrt(2))
 
-        fused_size = cnn_out + 128
+        fused_size = self.cnn_out_size + 128
 
         # ── Optional recurrent layer ──────────────────────────────
         rnn_hidden = self.recurrence_cfg["hidden_state_size"]
@@ -121,7 +131,7 @@ class ActorCriticModel(nn.Module):
                 recurrent_cell=None, sequence_length: int = 1):
         """
         Args:
-            img:            (B, 1, H, W)  — segmentation image, float [0,1]
+            img:            (B, C, H, W)  — segmentation image, float [0,1]
             vec:            (B, vec_dim)  — vector observations
             recurrent_cell: hidden state (or None if not using recurrence)
             sequence_length: used during BPTT; 1 during sampling
@@ -134,7 +144,7 @@ class ActorCriticModel(nn.Module):
         B = img.size(0)
 
         # CNN branch
-        h_img = self.cnn(img).reshape(B, -1)
+        h_img = self.cnn(img)
 
         # Vector branch
         h_vec = self.vec_encoder(vec)

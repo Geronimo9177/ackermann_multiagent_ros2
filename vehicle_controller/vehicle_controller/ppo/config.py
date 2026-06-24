@@ -5,19 +5,23 @@ Set use_recurrence = True to switch to recurrent PPO (LSTM).
 
 CONFIG = {
     # ── Observation dimensions ────────────────────────────────────
-    # Image: (1, H, W) — mono8 segmentation channel first
+    # Image: (C, H, W)
+    "img_channels": 2,
     "img_height": 96,
     "img_width":  128,
-    # Vector obs: [vx, vy, vz, wx, wy, wz, pos_x, pos_y, yaw,
-    #              wp_x, wp_y, wp_yaw, wp_v, mpc_v, mpc_steer]
-    "vec_obs_size": 15,
 
-    # ── Action space ─────────────────────────────────────────────
+    # Vector obs: [vx, vy, vz, wx, wy, wz, e_lat, e_lon, e_yaw, e_v, mpc_v, mpc_steer]
+    "vec_obs_size": 12,
+
+    # ── Action space ──────────────────────────────────────────────
     # Residual corrections on top of MPC output
     # [delta_v (m/s), delta_steer (rad)]
     "action_size": 2,
-    "action_scale": [1.0, 0.2],   # max magnitude of each residual
+    "action_scale": [6.0, 0.4],   # max magnitude of each residual
     "action_bias":  [0.0, 0.0],
+
+    # ── Vehicle ───────────────────────────────────────────────────
+    "wheelbase": 2.94,
 
     # ── PPO hyperparameters ───────────────────────────────────────
     "gamma":  0.99,

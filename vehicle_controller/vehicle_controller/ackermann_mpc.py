@@ -515,8 +515,8 @@ class AckermannMPC(Node):
             psi_now      = nearest_angle(psi_now_raw, self.state[2])
             dx    = self.state[0] - ref_pt_now[0]
             dy    = self.state[1] - ref_pt_now[1]
-            e_lat = abs(-np.sin(psi_now) * dx + np.cos(psi_now) * dy)
-            e_lon = abs( np.cos(psi_now) * dx + np.sin(psi_now) * dy)
+            e_lat = -np.sin(psi_now) * dx + np.cos(psi_now) * dy
+            e_lon = np.cos(psi_now) * dx + np.sin(psi_now) * dy
             e_yaw = np.arctan2(np.sin(self.state[2] - psi_now),
                                np.cos(self.state[2] - psi_now))
             v_ref_now = self.get_v_ref_at(self.current_idx, self.current_t)

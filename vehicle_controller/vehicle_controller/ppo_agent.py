@@ -115,16 +115,12 @@ class PPOAgentNode(Node):
         self._lock       = threading.Lock()
 
         self.bridge = CvBridge()
-        self._blank_img = np.zeros((self.config['img_height'], self.config['img_width']), dtype=np.float32)
+        self._blank_img = np.zeros((self.config.get('img_channels', 2), self.config['img_height'], self.config['img_width']), dtype=np.float32)
 
         self._e_lat = 0.0
         self._e_lon = 0.0
         self._e_yaw = 0.0
         self._e_v   = 0.0
-        self._wp_x   = 0.0
-        self._wp_y   = 0.0
-        self._wp_yaw = 0.0
-        self._wp_v   = 0.0
         self._v_z   = 0.0
 
         # Memory of final control signal commands for Slew Rate tracking
@@ -209,9 +205,9 @@ class PPOAgentNode(Node):
         # Positional errors in the Frenet frame
         dx = x_now - x_ref
         dy = y_now - y_ref
-        e_lat = abs(-math.sin(yaw_ref) * dx + math.cos(yaw_ref) * dy)
-        e_lon = abs( math.cos(yaw_ref) * dx + math.sin(yaw_ref) * dy)
-        e_yaw = abs(math.atan2(math.sin(yaw_now - yaw_ref), math.cos(yaw_now - yaw_ref)))
+        e_lat = -math.sin(yaw_ref) * dx + math.cos(yaw_ref) * dy
+        e_lon = math.cos(yaw_ref) * dx + math.sin(yaw_ref) * dy
+        e_yaw = math.atan2(math.sin(yaw_now - yaw_ref), math.cos(yaw_now - yaw_ref))
 
         with self._lock:
             odom_msg = self._odom_msg
@@ -220,8 +216,8 @@ class PPOAgentNode(Node):
         if odom_msg is not None:
                 v_now       = math.hypot(odom_msg.twist.twist.linear.x,
                                      odom_msg.twist.twist.linear.y)
-                e_v         = abs(v_now - v_ref)
-                v_z         = abs(odom_msg.twist.twist.linear.z)
+                e_v         = v_now - v_ref
+                v_z         = odom_msg.twist.twist.linear.z
                 roll_w_deg  = math.degrees(abs(odom_msg.twist.twist.angular.x))
                 pitch_w_deg = math.degrees(abs(odom_msg.twist.twist.angular.y))
 
@@ -241,10 +237,12 @@ class PPOAgentNode(Node):
         r_v     = -w['w_v']          * (e_v   ** 2)
         r_slew  = -w['w_dv']         * (dv_action ** 2) - w['w_dsteer'] * (dsteer_action ** 2)
         r_rates = -w['w_pitch_rate'] * pw_gated - w['w_roll_rate'] * rw_gated
-        r_vz    = -w['w_vz']         * v_z
+        r_vz    = -w['w_vz']         * abs(v_z)
 
         with self._lock:
-            self._wp_x, self._wp_y, self._wp_yaw, self._wp_v = x_ref, y_ref, yaw_ref, v_ref
+            self._e_lat, self._e_lon = e_lat, e_lon
+            self._e_yaw, self._e_v   = e_yaw, e_v
+
             self._cached_reward = {
                 'total':       r_lat + r_lon + r_yaw + r_v + r_slew + r_rates + r_vz,
                 'lat':         r_lat,
@@ -264,9 +262,6 @@ class PPOAgentNode(Node):
         result = msg.data
         if result == 0:
             return
-
-        self._pending_result = result
-        self._episode_done = True
 
         self._pending_result = result
         self._episode_done   = True
@@ -318,10 +313,11 @@ class PPOAgentNode(Node):
         with self._lock:
             img_msg  = self._img_msg
             odom_msg = self._odom_msg
-            wp_x, wp_y, wp_yaw, wp_v = self._wp_x, self._wp_y, self._wp_yaw, self._wp_v
+            e_lat, e_lon = self._e_lat, self._e_lon
+            e_yaw, e_v   = self._e_yaw, self._e_v
 
         img_t, vec_t = self._build_obs(img_msg, odom_msg, v_cmd_mpc, steer_mpc,
-                                       wp_x, wp_y, wp_yaw, wp_v)
+                                       e_lat, e_lon, e_yaw, e_v)
 
         # ── Store previous transition ──────────────────────────
         if self._have_prev and self.training_mode:
@@ -395,24 +391,23 @@ class PPOAgentNode(Node):
 
     def _build_obs(self, img_msg, odom_msg,
                    v_cmd_mpc: float, steer_mpc: float,
-                   wp_x=0., wp_y=0., wp_yaw=0., wp_v=0.):
+                   e_lat=0.0, e_lon=0.0, e_yaw=0.0, e_v=0.0):
         """Returns (img_tensor [1,H,W], vec_tensor [vec_dim])."""
         cfg = self.config
         H, W = cfg['img_height'], cfg['img_width']
 
         # ── Image ─────────────────────────────────────────────────
         if img_msg is not None:
-            raw = self.bridge.imgmsg_to_cv2(img_msg, 'mono8')
-            raw = cv2.resize(raw, (W, H)).astype(np.float32) / 255.0
-
+            raw = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='passthrough')
+            raw = raw.astype(np.float32) / 255.0
+            raw = raw.transpose(2, 0, 1) # [H, W, C] -> [C, H, W]
         else:
             raw = self._blank_img.copy()
 
-        img_t = torch.from_numpy(raw).unsqueeze(0)   # (1, H, W)
+        img_t = torch.from_numpy(raw)
 
         # ── Vector obs ────────────────────────────────────────────
-        # [vx, vy, vz, wx, wy, wz, pos_x, pos_y, yaw,
-        #  wp_x, wp_y, wp_yaw, wp_v, mpc_v, mpc_steer]
+        # [vx, vy, vz, wx, wy, wz, e_lat, e_lon, e_yaw, e_v, mpc_v, mpc_steer]
         vec = np.zeros(cfg['vec_obs_size'], dtype=np.float32)
 
         if odom_msg is not None:
@@ -420,15 +415,12 @@ class PPOAgentNode(Node):
             vec[0], vec[1], vec[2] = t.linear.x, t.linear.y, t.linear.z
             vec[3], vec[4], vec[5] = t.angular.x, t.angular.y, t.angular.z
             
-            p = odom_msg.pose.pose
-            vec[6], vec[7] = p.position.x, p.position.y
-            q = p.orientation
-            _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
-            vec[8] = yaw
-
-        vec[9], vec[10], vec[11], vec[12] = wp_x, wp_y, wp_yaw, wp_v
-        vec[13] = v_cmd_mpc
-        vec[14] = steer_mpc
+        vec[6]  = float(e_lat)
+        vec[7]  = float(e_lon)
+        vec[8]  = float(e_yaw)
+        vec[9]  = float(e_v)
+        vec[10] = float(v_cmd_mpc)
+        vec[11] = float(steer_mpc)
 
         return img_t, torch.from_numpy(vec)
 
@@ -441,7 +433,7 @@ class PPOAgentNode(Node):
         scale = torch.tensor(self.config['action_scale'], dtype=torch.float32)
         dv, d_steer = (residual.cpu() * scale).tolist()
 
-        L           = self.config.get('wheelbase', 2.55)
+        L           = self.config.get('wheelbase', 2.94)
         v_final     = v_cmd_mpc + dv
         steer_final = steer_mpc + d_steer
         w_final     = (v_final / L * math.tan(steer_final)) if abs(v_final) > 0.01 else 0.0
@@ -469,11 +461,12 @@ class PPOAgentNode(Node):
         with self._lock:
             img_msg  = self._img_msg
             odom_msg = self._odom_msg
-            wp_x, wp_y, wp_yaw, wp_v = self._wp_x, self._wp_y, self._wp_yaw, self._wp_v
+            e_lat, e_lon = self._e_lat, self._e_lon
+            e_yaw, e_v   = self._e_yaw, self._e_v
 
         img_t, vec_t = self._build_obs(img_msg, odom_msg,
-                                        self._last_v_cmd_mpc, self._last_steer_mpc,
-                                        wp_x, wp_y, wp_yaw, wp_v)
+                                       self._last_v_cmd_mpc, self._last_steer_mpc,
+                                       e_lat, e_lon, e_yaw, e_v)
 
         with torch.no_grad():
             _, last_value, _ = self.model(
