@@ -154,12 +154,13 @@ DEF tesla TeslaModel3 {
     Camera {
           name "camera"
           translation -2.12 0 0.93
-          fieldOfView 1
-          width 360
-          height 240
+          rotation 0 1 0 0.178
+          fieldOfView 0.45
+          width 128
+          height 96
           
           recognition Recognition {
-            maxRange 30
+            maxRange 15
             segmentation TRUE
           }
     }
