@@ -262,6 +262,13 @@ void CarDriver::cmdVelCallback(
     int64_t stamp = rclcpp::Time(msg->header.stamp).nanoseconds();
     last_ppo_stamp_ns_ = stamp;
 
+    if (!system_ready_ || sync_state_ != SyncState::WAIT_PPO)
+        return;
+
+    // Only accept if this is a new command (not a stale one)
+    if (stamp <= trigger_stamp_ns_)
+        return;
+
     // Apply command regardless of state (handles non-training mode too)
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
@@ -274,13 +281,6 @@ void CarDriver::cmdVelCallback(
     target_speed_ = v;
     wbu_driver_set_cruising_speed(v * 3.6);
     wbu_driver_set_steering_angle(target_steer_);
-
-    if (!system_ready_ || sync_state_ != SyncState::WAIT_PPO)
-        return;
-
-    // Only accept if this is a new command (not a stale one)
-    if (stamp <= trigger_stamp_ns_)
-        return;
 
     // Transition: PPO done → resume FAST, go back to RUNNING
     sync_state_ = SyncState::RUNNING;

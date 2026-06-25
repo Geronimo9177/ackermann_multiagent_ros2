@@ -127,7 +127,7 @@ private:
 
   // Safety timeouts (wall-clock milliseconds)
   static constexpr int MPC_TIMEOUT_MS = 300;   // max wait for MPC
-  static constexpr int PPO_TIMEOUT_MS = 30000;   // max wait for PPO (training)
+  static constexpr int PPO_TIMEOUT_MS = 3000;   // max wait for PPO (training)
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   start_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr   reset_sub_;

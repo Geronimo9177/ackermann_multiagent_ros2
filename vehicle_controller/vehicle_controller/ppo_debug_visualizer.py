@@ -31,16 +31,18 @@ class PPODebugVisualizer(Node):
         self.update_ms   = deque(maxlen=self.history_size)
 
         # -- Reward Components Queues --
-        self.reward_step  = deque(maxlen=self.history_size)
-        self.reward_total = deque(maxlen=self.history_size)
-        self.reward_lat   = deque(maxlen=self.history_size)
-        self.reward_lon   = deque(maxlen=self.history_size)
-        self.reward_yaw   = deque(maxlen=self.history_size)
-        self.reward_v     = deque(maxlen=self.history_size)
-        self.reward_slew  = deque(maxlen=self.history_size) 
-        self.reward_rates = deque(maxlen=self.history_size) 
-        self.reward_vz    = deque(maxlen=self.history_size) 
-        self.reward_term  = deque(maxlen=self.history_size) 
+        self.reward_step     = deque(maxlen=self.history_size)
+        self.reward_total    = deque(maxlen=self.history_size)
+        self.reward_lat      = deque(maxlen=self.history_size)
+        self.reward_lon      = deque(maxlen=self.history_size)
+        self.reward_yaw      = deque(maxlen=self.history_size)
+        self.reward_v        = deque(maxlen=self.history_size)
+        self.reward_slew     = deque(maxlen=self.history_size)
+        self.reward_rates    = deque(maxlen=self.history_size)
+        self.reward_vz       = deque(maxlen=self.history_size)
+        self.reward_res      = deque(maxlen=self.history_size)
+        self.reward_progress = deque(maxlen=self.history_size)
+        self.reward_term     = deque(maxlen=self.history_size)
 
         self.create_subscription(Float64MultiArray, '/ppo/metrics', self.metrics_cb, 10)
         self.create_subscription(Float64MultiArray, '/ppo/reward_terms', self.reward_cb, 10)
@@ -73,6 +75,7 @@ class PPODebugVisualizer(Node):
         self.axes_m[7].set_title('Update Time')
 
         self.axes_m[6].set_yscale('log')
+        self.axes_m[6].set_ylim(1e-6, 1e-3) 
         self.axes_m[6].set_xlabel('Updates')
         self.axes_m[7].set_xlabel('Updates')
 
@@ -84,21 +87,21 @@ class PPODebugVisualizer(Node):
         # 2. REWARD SIGNALS FIGURE (4x2) 
         # ================================================================
         # Changed to 4x2 since Lat & Lon are now sharing a plot
-        self.fig_rewards, self.axes_r = plt.subplots(4, 2, figsize=(7, 7), sharex=True)
+        self.fig_rewards, self.axes_r = plt.subplots(5, 2, figsize=(7, 9), sharex=True)
         self.axes_r = self.axes_r.flatten()
-        
+
         self.lines_r = {
-            # Lat and Lon are mapped to the same axis: axes_r[0]
-            'lat':   self.axes_r[0].plot([], [], label='Lat', color='red', linewidth=1.5)[0],
-            'lon':   self.axes_r[0].plot([], [], label='Lon', color='blue', alpha=0.7)[0],
-            
-            'yaw':   self.axes_r[1].plot([], [], label='Yaw', color='purple')[0],
-            'v':     self.axes_r[2].plot([], [], label='Velocity', color='darkorange')[0],
-            'slew':  self.axes_r[3].plot([], [], label='Slew Rate', color='teal', linewidth=1.8)[0],
-            'rates': self.axes_r[4].plot([], [], label='Angular Rates', color='darkgreen', linewidth=1.8)[0],
-            'vz':    self.axes_r[5].plot([], [], label='Z-Vel', color='firebrick', linewidth=1.8)[0],
-            'term':  self.axes_r[6].plot([], [], label='Terminal', color='magenta', linestyle='--')[0],
-            'total': self.axes_r[7].plot([], [], label='Total', color='black', linewidth=2.5)[0],
+            'lat':      self.axes_r[0].plot([], [], label='Lat',          color='red',       linewidth=1.5)[0],
+            'lon':      self.axes_r[0].plot([], [], label='Lon',          color='blue',      alpha=0.7)[0],
+            'yaw':      self.axes_r[1].plot([], [], label='Yaw',          color='purple')[0],
+            'v':        self.axes_r[2].plot([], [], label='Velocity',     color='darkorange')[0],
+            'slew':     self.axes_r[3].plot([], [], label='Slew Rate',    color='teal',      linewidth=1.8)[0],
+            'rates':    self.axes_r[4].plot([], [], label='Angular Rates',color='darkgreen', linewidth=1.8)[0],
+            'vz':       self.axes_r[5].plot([], [], label='Z-Vel',        color='firebrick', linewidth=1.8)[0],
+            'res':      self.axes_r[6].plot([], [], label='Residual Pen', color='steelblue', linewidth=1.8)[0],
+            'progress': self.axes_r[7].plot([], [], label='Progress',     color='limegreen', linewidth=1.8)[0],
+            'term':     self.axes_r[8].plot([], [], label='Terminal',     color='magenta',   linestyle='--')[0],
+            'total':    self.axes_r[9].plot([], [], label='Total',        color='black',     linewidth=2.5)[0],
         }
 
         self.axes_r[0].set_title('Lat & Lon Error')
@@ -106,16 +109,18 @@ class PPODebugVisualizer(Node):
         self.axes_r[2].set_title('Velocity Penalty')
         self.axes_r[3].set_title('Slew Rate Penalty')
         self.axes_r[4].set_title('Angular Penalty')
-        self.axes_r[5].set_title('Z-Accel Penalty')
-        self.axes_r[6].set_title('Terminal Event')
-        self.axes_r[7].set_title('Total Reward')
+        self.axes_r[5].set_title('Z-Vel Penalty')
+        self.axes_r[6].set_title('Residual Penalty')   # ← nuevo
+        self.axes_r[7].set_title('Track Progress')     # ← nuevo
+        self.axes_r[8].set_title('Terminal Event')
+        self.axes_r[9].set_title('Total Reward')
 
         for ax in self.axes_r:
             ax.grid(True, linestyle='--', alpha=0.6)
             ax.legend(loc='upper right')
-            
-        self.axes_r[6].set_xlabel('Steps')
-        self.axes_r[7].set_xlabel('Steps')
+
+        self.axes_r[8].set_xlabel('Steps')
+        self.axes_r[9].set_xlabel('Steps')
 
         plt.tight_layout()
         plt.ion()
@@ -139,7 +144,7 @@ class PPODebugVisualizer(Node):
         self.update_ms.append(msg.data[8])
 
     def reward_cb(self, msg: Float64MultiArray):
-        if len(msg.data) < 10:
+        if len(msg.data) < 12:
             return
 
         self.reward_step.append(msg.data[0])
@@ -148,11 +153,12 @@ class PPODebugVisualizer(Node):
         self.reward_lon.append(msg.data[3])
         self.reward_yaw.append(msg.data[4])
         self.reward_v.append(msg.data[5])
-        
         self.reward_slew.append(msg.data[6])
         self.reward_rates.append(msg.data[7])
         self.reward_vz.append(msg.data[8])
-        self.reward_term.append(msg.data[9])
+        self.reward_res.append(msg.data[9])      
+        self.reward_progress.append(msg.data[10])
+        self.reward_term.append(msg.data[11])
 
     def update_plot(self):
         # -- 1. Update Metrics Plots --
@@ -176,15 +182,17 @@ class PPODebugVisualizer(Node):
         # -- 2. Update Reward Plots --
         if len(self.reward_step) >= 2:
             rx = np.array(self.reward_step)
-            self.lines_r['lat'].set_data(rx, np.array(self.reward_lat))
-            self.lines_r['lon'].set_data(rx, np.array(self.reward_lon))
-            self.lines_r['yaw'].set_data(rx, np.array(self.reward_yaw))
-            self.lines_r['v'].set_data(rx, np.array(self.reward_v))
-            self.lines_r['slew'].set_data(rx, np.array(self.reward_slew))
-            self.lines_r['rates'].set_data(rx, np.array(self.reward_rates))
-            self.lines_r['vz'].set_data(rx, np.array(self.reward_vz))
-            self.lines_r['term'].set_data(rx, np.array(self.reward_term))
-            self.lines_r['total'].set_data(rx, np.array(self.reward_total))
+            self.lines_r['lat'].set_data(rx,      np.array(self.reward_lat))
+            self.lines_r['lon'].set_data(rx,      np.array(self.reward_lon))
+            self.lines_r['yaw'].set_data(rx,      np.array(self.reward_yaw))
+            self.lines_r['v'].set_data(rx,        np.array(self.reward_v))
+            self.lines_r['slew'].set_data(rx,     np.array(self.reward_slew))
+            self.lines_r['rates'].set_data(rx,    np.array(self.reward_rates))
+            self.lines_r['vz'].set_data(rx,       np.array(self.reward_vz))
+            self.lines_r['res'].set_data(rx,      np.array(self.reward_res))
+            self.lines_r['progress'].set_data(rx, np.array(self.reward_progress))
+            self.lines_r['term'].set_data(rx,     np.array(self.reward_term))
+            self.lines_r['total'].set_data(rx,    np.array(self.reward_total))
 
             for ax in self.axes_r:
                 ax.relim()

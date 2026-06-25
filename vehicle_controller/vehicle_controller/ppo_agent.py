@@ -124,10 +124,13 @@ class PPOAgentNode(Node):
         self._v_z   = 0.0
 
         # Memory of final control signal commands for Slew Rate tracking
+        self._dv                    = 0.0
+        self._dsteer                = 0.0
         self._prev_final_v          = 0.0
         self._prev_final_steer      = 0.0
         self._prev_prev_final_v     = 0.0
         self._prev_prev_final_steer = 0.0
+        self._prev_track_progress   = 0.0
 
         self._last_v_cmd_mpc = 0.0
         self._last_steer_mpc = 0.0
@@ -150,9 +153,16 @@ class PPOAgentNode(Node):
         self._prev_vec      = None
         self._have_prev     = False
 
+        # ── Action scaling ────────────────────────────────────────
+        self._action_scale = torch.tensor(self.config['action_scale'], dtype=torch.float32)
+        self._action_bias  = torch.tensor(self.config.get('action_bias'), dtype=torch.float32)
+
         # ── Checkpoint ────────────────────────────────────────────
         os.makedirs(self.ckpt_dir, exist_ok=True)
         self._try_load_checkpoint()
+
+        # Background training state
+        self._training = False
 
         # ── Subscribers ───────────────────────────────────────────
         self.create_subscription(Image,       '/camera/segmentation',
@@ -171,7 +181,7 @@ class PPOAgentNode(Node):
                                  self._odom_cb, 10)
 
         # ── Publishers ────────────────────────────────────────────
-        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 1)
+        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
         self.metrics_pub = self.create_publisher(Float64MultiArray, '/ppo/metrics', 10)
         self.reward_terms_pub = self.create_publisher(Float64MultiArray, '/ppo/reward_terms', 10)
 
@@ -199,6 +209,8 @@ class PPOAgentNode(Node):
         v_ref   = float(msg.data[7])  
         steer   = float(msg.data[8])
 
+        track_progress = float(msg.data[9])
+
         self._last_v_cmd_mpc = v_cmd
         self._last_steer_mpc = steer
 
@@ -212,8 +224,9 @@ class PPOAgentNode(Node):
         with self._lock:
             odom_msg = self._odom_msg
         
-        e_v, v_z, roll_w_deg, pitch_w_deg = 0.0, 0.0, 0.0, 0.0
+        v_x, e_v, v_z, roll_w_deg, pitch_w_deg = 0.0, 0.0, 0.0, 0.0, 0.0
         if odom_msg is not None:
+                v_x = odom_msg.twist.twist.linear.x
                 v_now       = math.hypot(odom_msg.twist.twist.linear.x,
                                      odom_msg.twist.twist.linear.y)
                 e_v         = v_now - v_ref
@@ -225,6 +238,10 @@ class PPOAgentNode(Node):
         dv_action = self._prev_final_v - self._prev_prev_final_v
         dsteer_action = self._prev_final_steer - self._prev_prev_final_steer
 
+        # Progress
+        dp = track_progress - self._prev_track_progress
+        self._prev_track_progress = track_progress
+
         # Angular velocity
         w = self.config['reward']
         pw_gated = pitch_w_deg if pitch_w_deg > w['deadband_pitch_deg'] else 0.0
@@ -234,9 +251,11 @@ class PPOAgentNode(Node):
         r_lat   = -w['w_lat']        * (e_lat ** 2)
         r_lon   = -w['w_lon']        * (e_lon ** 2)
         r_yaw   = -w['w_yaw']        * (e_yaw ** 2)
-        r_v     = -w['w_v']          * (e_v   ** 2)
+        r_v     = -w['w_v']          * (e_v   ** 2)     - w['w_rev']   * max(0.0, -v_x) 
+        r_res   = -w['w_res_v']      * (self._dv ** 2)  - w['w_res_steer'] * (self._dsteer ** 2)
         r_slew  = -w['w_dv']         * (dv_action ** 2) - w['w_dsteer'] * (dsteer_action ** 2)
-        r_rates = -w['w_pitch_rate'] * pw_gated - w['w_roll_rate'] * rw_gated
+        r_rates = -w['w_pitch_rate'] * pw_gated         - w['w_roll_rate'] * rw_gated
+        r_prog  =  w['w_progress']   * (dp * 100)
         r_vz    = -w['w_vz']         * abs(v_z)
 
         with self._lock:
@@ -244,13 +263,15 @@ class PPOAgentNode(Node):
             self._e_yaw, self._e_v   = e_yaw, e_v
 
             self._cached_reward = {
-                'total':       r_lat + r_lon + r_yaw + r_v + r_slew + r_rates + r_vz,
+                'total':       r_lat + r_lon + r_yaw + r_v + r_res + r_slew + r_rates + r_prog + r_vz,
                 'lat':         r_lat,
                 'lon':         r_lon,
                 'yaw':         r_yaw,
                 'v':           r_v,
+                'r_res':       r_res,
                 'slew':        r_slew,
                 'rates_gated': r_rates,
+                'progress':    r_prog,
                 'vz':          r_vz,
                 'terminal':    0.0,
             }
@@ -269,8 +290,12 @@ class PPOAgentNode(Node):
         w = self.config['reward']
         if result == 1:
             terminal = w['success']
-        elif result in (2, 3):
-            terminal = w['crash']
+        elif result == 2:    # ROLLOVER 
+            terminal = w['crash_rollover']
+        elif result == 3:    # STUCK
+            terminal = w['crash_stuck']
+        elif result == 4:    # FALL
+            terminal = w['crash_fall']
         else:
             terminal = 0.0
         
@@ -296,6 +321,18 @@ class PPOAgentNode(Node):
         self._prev_final_steer      = 0.0
         self._prev_prev_final_v     = 0.0
         self._prev_prev_final_steer = 0.0
+
+        self._prev_track_progress   = 0.0
+        self._dv                    = 0.0      
+        self._dsteer                = 0.0
+
+        self._last_v_cmd_mpc = 0.0
+        self._last_steer_mpc = 0.0
+        with self._lock:
+            self._e_lat = 0.0
+            self._e_lon = 0.0
+            self._e_yaw = 0.0
+            self._e_v   = 0.0
 
     # ═══════════════════════════════════════════════════════════════
     # Main control loop (called once per sim step, sim is PAUSED)
@@ -358,9 +395,10 @@ class PPOAgentNode(Node):
 
         reward_terms_msg = Float64MultiArray()
         reward_terms_msg.data = [
-            float(self._control_step), float(terms['total']), float(terms['lat']),
-            float(terms['lon']), float(terms['yaw']), float(terms['v']),
-            float(terms['slew']), float(terms['rates_gated']),  float(terms['vz']),
+            float(self._control_step), float(terms['total']),
+            float(terms['lat']),   float(terms['lon']),    float(terms['yaw']),
+            float(terms['v']),     float(terms['slew']),   float(terms['rates_gated']),
+            float(terms['vz']),    float(terms['r_res']),  float(terms['progress']),
             float(terms['terminal'])
         ]
         self.reward_terms_pub.publish(reward_terms_msg)
@@ -430,15 +468,16 @@ class PPOAgentNode(Node):
 
     def _publish_cmd(self, v_cmd_mpc: float, steer_mpc: float, residual: torch.Tensor):
         """Add PPO residual on top of MPC command and publish."""
-        scale = torch.tensor(self.config['action_scale'], dtype=torch.float32)
-        dv, d_steer = (residual.cpu() * scale).tolist()
+        # Residual is in [-1, 1] range, scale to actual action range
+        dv, d_steer = (residual.cpu() * self._action_scale + self._action_bias).tolist()
 
         L           = self.config.get('wheelbase', 2.94)
         v_final     = v_cmd_mpc + dv
         steer_final = steer_mpc + d_steer
         w_final     = (v_final / L * math.tan(steer_final)) if abs(v_final) > 0.01 else 0.0
 
-
+        self._dv = dv
+        self._dsteer = d_steer
         self._prev_prev_final_v = self._prev_final_v
         self._prev_prev_final_steer = self._prev_final_steer
         self._prev_final_v = v_final

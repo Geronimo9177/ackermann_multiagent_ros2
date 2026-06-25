@@ -10,22 +10,23 @@ import os
 import glob
 import random
 import math
+from collections import deque
 
 
 class RLMaster(Node):
 
-    # ── Condiciones de fin de episodio ──────────────────────────
-    CRASH_SPEED_THRESHOLD  = 0.1   # m/s
-    CRASH_SPEED_DURATION   = 0.5    # s
-    FALL_Z_THRESHOLD       = -1.0   # m
-    MIN_INITIAL_SPEED      = 0.3    # m/s 
-    ROLLOVER_THRESHOLD     = math.radians(60.0)
+    # Episode end conditions
+    FALL_Z_THRESHOLD   = -1.0   # m
+    ROLLOVER_THRESHOLD = math.radians(60.0)
+
+    STUCK_TICKS         = 500
+    STUCK_PROGRESS_MIN  = 0.01 # %
 
     RESULT_RUNNING  = 0
     RESULT_SUCCESS  = 1
-    RESULT_CRASH    = 2
-    RESULT_FALL     = 3
-
+    RESULT_ROLLOVER = 2
+    RESULT_STUCK    = 3
+    RESULT_FALL     = 4
     def __init__(self):
         super().__init__('rl_master')
 
@@ -35,20 +36,17 @@ class RLMaster(Node):
         self.training_mode = self.get_parameter('training_mode').value
         self.use_ground_truth = self.get_parameter('use_ground_truth').value
 
-        # Solo gestionamos el proceso de la trayectoria
         self._traj_process   = None 
 
-        self._odom_ready    = False
+        self._odom_ready     = False
         self._episode_active = False
         self._start_timer    = None
         self._traj_timer     = None
 
-        # Estado para detección de fin de episodio
-        self._low_speed_since      = None
-        self._vehicle_moved        = False
         self._episode_count        = 0
         self._topp_ready           = False
-        self._gt_speed             = 0.0
+
+        self._progress_history = deque(maxlen=self.STUCK_TICKS)
 
         pkg_path = get_package_share_directory('vehicle_controller')
         self.trajectories_dir = os.path.join(pkg_path, 'trajectories')
@@ -68,33 +66,36 @@ class RLMaster(Node):
             self.main_odom_topic = '/odometry/fused'
 
         self.odom_sub = self.create_subscription(
-            Odometry, self.main_odom_topic, self._main_odom_cb, 10) # ¡Cambiado!
+            Odometry, self.main_odom_topic, self._main_odom_cb, 10) # Changed
 
         self.success_sub = self.create_subscription(
             Bool, '/mpc/success', self._success_cb, 1)
 
         self.gt_sub = self.create_subscription(
             Odometry, '/ground_truth_odom', self._gt_cb, 10)
+
+        self.mpc_debug_sub = self.create_subscription(
+            Float64MultiArray, '/mpc/debug', self._mpc_debug_cb, 10)
         
-        self.get_logger().info('RLMaster iniciado')
+        self.get_logger().info('RLMaster node initialized')
 
     # ── Callbacks ────────────────────────────────────────────────
     def _success_cb(self, _msg: Bool):
-        """El MPC llegó al goal — episodio exitoso."""
+        """The MPC reached the goal — successful episode."""
         if self._episode_active:
-            self.get_logger().info('SUCCESS — vehículo llegó al destino')
+            self.get_logger().info('SUCCESS')
             self._end_episode(self.RESULT_SUCCESS)
 
     def _gt_cb(self, msg: Odometry):
-        """Velocidad ground truth para detección de crash."""
+        """Ground-truth velocity for crash detection."""
         if not self._episode_active:
             return
 
         z_pos = msg.pose.pose.position.z
 
-        # Caída del mapa
+        # Fall detection
         if z_pos < self.FALL_Z_THRESHOLD:
-            self.get_logger().warn(f'CAÍDA detectada (z={z_pos:.2f}m)')
+            self.get_logger().warn(f'FALL detected (z={z_pos:.2f}m)')
             self._end_episode(self.RESULT_FALL)
             return
         
@@ -104,34 +105,31 @@ class RLMaster(Node):
 
         if abs(roll) > self.ROLLOVER_THRESHOLD or abs(pitch) > self.ROLLOVER_THRESHOLD:
             self.get_logger().warn(
-                f'VUELCO detectado (roll={math.degrees(roll):.1f}°, pitch={math.degrees(pitch):.1f}°)'
+                f'ROLLOVER detected (roll={math.degrees(roll):.1f}°, pitch={math.degrees(pitch):.1f}°)'
             )
-            self._end_episode(self.RESULT_CRASH)
+            self._end_episode(self.RESULT_ROLLOVER)
             return
         
-        now = self.get_clock().now().nanoseconds * 1e-9
+    def _mpc_debug_cb(self, msg: Float64MultiArray):
+        if not self._episode_active or len(msg.data) < 10:
+            return
 
-        vx = msg.twist.twist.linear.x
-        vy = msg.twist.twist.linear.y
-        speed = math.sqrt(vx**2 + vy**2)
+        track_progress = float(msg.data[9])
+        self._progress_history.append(track_progress)
 
-        if speed > self.MIN_INITIAL_SPEED:
-            self._vehicle_moved = True
+        if len(self._progress_history) == self._progress_history.maxlen:
+            delta_prog  = track_progress - self._progress_history[0]
 
-        if self._vehicle_moved:
-            if speed < self.CRASH_SPEED_THRESHOLD:
-                if self._low_speed_since is None:
-                    self._low_speed_since = now
-                elif now - self._low_speed_since >= self.CRASH_SPEED_DURATION:
-                    self.get_logger().warn(f'CHOQUE detectado (v={speed:.3f} m/s)')
-                    self._end_episode(self.RESULT_CRASH)
-            else:
-                self._low_speed_since = None
+            if delta_prog < self.STUCK_PROGRESS_MIN:
+                self.get_logger().warn(
+                    f'STUCK detected ({delta_prog*100:.2f}% over {self.STUCK_TICKS} ticks)'
+                )
+                self._end_episode(self.RESULT_STUCK)
 
     def _main_odom_cb(self, msg: Odometry):
         if not self._odom_ready:
             self._odom_ready = True
-            self.get_logger().info(f'{self.main_odom_topic} activo — arrancando..')
+            self.get_logger().info(f'{self.main_odom_topic} active — ready for a new episode')
             self._start_timer = self.create_timer(1.0, self._on_start_timer)
             return
 
@@ -142,22 +140,20 @@ class RLMaster(Node):
             return
         
         self._topp_ready = True
-        self.get_logger().info('TOPP listo — arrancando episodio en 0.5s...')
+        self.get_logger().info('TOPP ready - starting episode in 0.5s')
         self._traj_timer = self.create_timer(0.5, self._on_traj_timer)
     
     def _kill_madgwick(self):
-        """Mata el proceso del filtro IMU. ROS 2 lo revivirá automáticamente en limpio."""
         if self.use_ground_truth:
             return
         
         try:
-            # pkill busca el proceso por su nombre ejecutable y lo termina a la fuerza
             subprocess.run(['pkill', '-f', 'imu_filter_madgwick_node'], check=False)
-            self.get_logger().info('Filtro Madgwick aniquilado')
+            self.get_logger().info('Madgwick filter terminated')
         except Exception as e:
-            self.get_logger().error(f'Error al intentar matar a Madgwick: {e}')
+            self.get_logger().error(f'Error while trying to terminate Madgwick: {e}')
 
-    # ── Timers de arranque ───────────────────────────────────────
+    # ── Startup timers ───────────────────────────────────────────
     def _on_start_timer(self):
         if self._start_timer:
             self._start_timer.cancel()
@@ -173,24 +169,24 @@ class RLMaster(Node):
         msg.data = True
         self.start_pub.publish(msg)
         self._episode_active = True
-        self.get_logger().info(f'[Ep {self._episode_count}] Activo — /rl/start publicado')
+        self.get_logger().info(f'[Ep {self._episode_count}] activated')
 
-    # ── Ciclo de episodio ────────────────────────────────────────
+    # ── Episode cycle ────────────────────────────────────────────
     def start_episode(self):
         traj_file = self._pick_random_trajectory()
         if traj_file is None:
-            self.get_logger().error(f'No hay trayectorias en: {self.trajectories_dir}')
+            self.get_logger().error(f'No trajectories found in: {self.trajectories_dir}')
             return
 
-        self._episode_count += 1
-        self._low_speed_since = None
-        self._vehicle_moved   = False
+        self._episode_count  += 1
         self._topp_ready      = False
 
-        filename = os.path.basename(traj_file)
-        self.get_logger().info(f'[Ep {self._episode_count}] Trayectoria: {filename}')
+        self._progress_history.clear()
 
-        # Aniquilación inmediata del proceso anterior para evitar congelamientos
+        filename = os.path.basename(traj_file)
+        self.get_logger().info(f'[Ep {self._episode_count}] Trajectory: {filename}')
+
+        # Immediate termination of the previous process to avoid freezes
         if self._traj_process is not None:
             try:
                 self._traj_process.kill()
@@ -204,30 +200,31 @@ class RLMaster(Node):
         ])
     
     def _end_episode(self, result: int):
-        """Punto único de salida de episodio."""
+        """Single exit point for an episode."""
         self._episode_active = False
 
         result_names = {
-            self.RESULT_SUCCESS: 'SUCCESS',
-            self.RESULT_CRASH:   'CRASH',
-            self.RESULT_FALL:    'FALL',
+            self.RESULT_SUCCESS:  'SUCCESS',
+            self.RESULT_ROLLOVER: 'ROLLOVER',
+            self.RESULT_STUCK:    'STUCK',
+            self.RESULT_FALL:     'FALL',
         }
         self.get_logger().info(
-            f'[Ep {self._episode_count}] FIN → {result_names.get(result, "?")}')
+            f'[Ep {self._episode_count}] END -> {result_names.get(result, "?")}')
 
-        # Publicar resultado para el agente RL
+        # Publish result for the RL agent
         msg_r = Int32()
         msg_r.data = result
         self.result_pub.publish(msg_r)
 
-        # Señal de reset a Webots
+        # Reset signal to Webots
         msg_b = Bool()
         msg_b.data = True
         self.reset_pub.publish(msg_b)
         self._kill_madgwick()
 
         self._odom_ready = False
-        self.get_logger().info(f'Esperando {self.main_odom_topic} para nuevo episodio...')
+        self.get_logger().info(f'Waiting for {self.main_odom_topic} for a new episode...')
 
     # ── Helpers ──────────────────────────────────────────────────
     def _pick_random_trajectory(self):

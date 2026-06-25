@@ -72,24 +72,32 @@ CONFIG = {
 
     # ── Reward weights ────────────────────────────────────────────
     "reward": {
-        "w_lat":   2.5,
+        "w_lat":   0.1,
         "w_lon":   0.01,
         "w_yaw":   1.0,    
-        "w_v":     0.01,
+        "w_v":     0.1,
+        "w_rev":   0.0,
 
-        "w_roll_rate":  0.5,
-        "w_pitch_rate": 0.5,
+        "w_roll_rate":  0.1,
+        "w_pitch_rate": 0.1,
 
         "deadband_pitch_deg":  4.0,
         "deadband_roll_deg": 6.0,
 
         "w_vz": 1.0,
 
-        "w_dv":     0.25,   
-        "w_dsteer": 0.5,
-        
-        "success":  50.0,
-        "crash":   -50.0
+        "w_res_v":     0.01,
+        "w_res_steer": 0.1,
+
+        "w_dv":     0.01,
+        "w_dsteer": 0.05,
+
+        "w_progress": 100.0,
+
+        "success":        300.0,
+        "crash_rollover": -100.0,
+        "crash_stuck":     -50.0,
+        "crash_fall":     -100.0,
     },
 
     # ── Checkpoint ────────────────────────────────────────────────

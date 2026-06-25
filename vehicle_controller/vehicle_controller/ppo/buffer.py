@@ -1,11 +1,5 @@
 """
 Replay buffer for on-policy PPO with a single ROS-based environment.
-
-Key differences from the multi-worker gym buffer:
-  - n_workers = 1  (the Webots simulation is the single env)
-  - Actions are continuous (float), not discrete (long)
-  - Observations are split into img (visual) and vec (vector)
-  - Supports optional recurrent states (hxs / cxs)
 """
 
 import numpy as np
@@ -25,6 +19,7 @@ class Buffer:
         self.sequence_length = rec_cfg["sequence_length"]
         hidden_size        = rec_cfg["hidden_state_size"]
 
+        img_ch = config.get("img_channels", 2)
         img_h   = config["img_height"]
         img_w   = config["img_width"]
         vec_dim = config["vec_obs_size"]
@@ -33,7 +28,7 @@ class Buffer:
         T = self.worker_steps
 
         # ── Storage ───────────────────────────────────────────────
-        self.imgs     = torch.zeros((T, 1, img_h, img_w),  dtype=torch.float32)
+        self.imgs = torch.zeros((T, img_ch, img_h, img_w),  dtype=torch.float32)
         self.vecs     = torch.zeros((T, vec_dim),           dtype=torch.float32)
         self.actions  = torch.zeros((T, act_dim),           dtype=torch.float32)
         self.log_probs = torch.zeros((T, act_dim),          dtype=torch.float32)

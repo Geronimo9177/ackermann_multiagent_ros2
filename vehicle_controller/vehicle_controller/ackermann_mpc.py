@@ -126,13 +126,11 @@ class AckermannMPC(Node):
         self.cmd_pub            = self.create_publisher(TwistStamped,       '/cmd_vel_mpc',         10)
         self.debug_pub          = self.create_publisher(Float64MultiArray,  '/mpc/debug',           10)
         self.predicted_path_pub = self.create_publisher(Path,               '/mpc/predicted_path',  10)
-        self.success_pub        = self.create_publisher(Bool, '/mpc/success', 1)
+        self.success_pub        = self.create_publisher(Bool,               '/mpc/success', 1)
 
         self.get_logger().info('Setting up MPC solver...')
         self.setup_mpc()
         self.get_logger().info('MPC solver ready!')
-
-        self.create_timer(2.0,     self.debug_status)
 
     def _trigger_cb(self, msg: Header):
         self.control_loop()
@@ -144,15 +142,6 @@ class AckermannMPC(Node):
         self.current_path  = None
         self.current_idx = None
         self.get_logger().info("MPC internal state reset.")
-
-    def debug_status(self):
-        self.get_logger().info(
-            f'Odom: {self.odom_received} | Fused: {self.fused_received} | '
-            f'Path: {self.path_received} | Idx: {self.current_idx} | '
-            f'State: [{self.state[0]:.2f}, {self.state[1]:.2f}, '
-            f'{np.degrees(self.state[2]):.1f}°] | '
-            f'Drift offset: [{self.drift_offset[0]:.3f}, {self.drift_offset[1]:.3f}]'
-        )
 
     # ── MPC setup ────────────────────────────────────────────────────
     def setup_mpc(self):
@@ -410,13 +399,13 @@ class AckermannMPC(Node):
         self.predicted_path_pub.publish(msg)
 
     def publish_debug_metrics(self, x_now, y_now, yaw_now, x_ref, y_ref, yaw_ref,
-                              v_cmd, v_ref, steer, solve_ms):
+                              v_cmd, v_ref, steer, track_progress, solve_ms):
         msg      = Float64MultiArray()
         msg.data = [
             float(x_now),   float(y_now),   float(yaw_now),
             float(x_ref),   float(y_ref),   float(yaw_ref),
             float(v_cmd),   float(v_ref),   float(steer),
-            float(self.current_idx if self.current_idx is not None else -1),
+            float(track_progress),
             float(solve_ms),
             float(self.drift_offset[0]),   # extra: x offset for debug
             float(self.drift_offset[1]),   # extra: y offset for debug
@@ -531,12 +520,17 @@ class AckermannMPC(Node):
                 throttle_duration_sec=0.5
             )
 
+            s_now   = float(self.s_arr[self.current_idx]) if self.current_idx is not None else 0.0
+            s_total = float(self.s_arr[-1])
+            
+            track_progress = s_now / s_total if s_total > 0.0 else 0.0
+
             now_stamp = self.get_clock().now().to_msg()
             self.publish_predicted_path(opt, now_stamp)
             self.publish_debug_metrics(
                 self.state[0], self.state[1], self.state[2],
                 ref_pt_now[0], ref_pt_now[1], psi_now,
-                u[0], v_ref_now, u[1], solve_ms
+                u[0], v_ref_now, u[1], track_progress, solve_ms
             )
             self.publish_cmd(u)
 

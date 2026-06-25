@@ -40,8 +40,6 @@ class ActorCriticModel(nn.Module):
         self.recurrence_cfg  = config["recurrence"]
         self.hidden_size     = config["hidden_layer_size"]
         self.action_size     = config["action_size"]
-        self.action_scale    = torch.tensor(config["action_scale"], dtype=torch.float32)
-        self.action_bias     = torch.tensor(config["action_bias"],  dtype=torch.float32)
 
         img_ch  = config.get("img_channels", 2)
         img_h   = config["img_height"]
@@ -65,7 +63,7 @@ class ActorCriticModel(nn.Module):
             conv_trunk,
             nn.Flatten(),
             nn.Linear(spatial_flat_size, 512), 
-            nn.ReLU()
+            nn.Mish()
         )
         self.cnn_out_size = 512
 
@@ -77,8 +75,8 @@ class ActorCriticModel(nn.Module):
 
         # ── Vector encoder ────────────────────────────────────────
         self.vec_encoder = nn.Sequential(
-            nn.Linear(vec_dim, 128), nn.ReLU(),
-            nn.Linear(128, 128),     nn.ReLU(),
+            nn.Linear(vec_dim, 128), nn.Mish(),
+            nn.Linear(128, 128),     nn.Mish(),
         )
         nn.init.orthogonal_(self.vec_encoder[0].weight, np.sqrt(2))
         nn.init.orthogonal_(self.vec_encoder[2].weight, np.sqrt(2))
@@ -165,21 +163,18 @@ class ActorCriticModel(nn.Module):
             recurrent_cell = None
 
         # Shared hidden
-        h = F.relu(self.fc_shared(h))
+        h = F.mish(self.fc_shared(h))
 
         # Policy
-        h_pi  = F.relu(self.fc_policy(h))
+        h_pi  = F.mish(self.fc_policy(h))
         mean  = torch.tanh(self.mean_head(h_pi))          # raw in [-1,1]
         log_std = self.log_std_head(h_pi).clamp(self.LOG_STD_MIN, self.LOG_STD_MAX)
         std   = log_std.exp()
 
-        # Scale mean to action range
-        scale  = self.action_scale.to(img.device)
-        bias   = self.action_bias.to(img.device)
-        dist   = Normal(mean * scale + bias, std * scale)
+        dist   = Normal(mean, std)
 
         # Value
-        h_v   = F.relu(self.fc_value(h))
+        h_v   = F.mish(self.fc_value(h))
         value = self.value_head(h_v).reshape(-1)
 
         return dist, value, recurrent_cell
