@@ -17,7 +17,7 @@ CONFIG = {
     # Residual corrections on top of MPC output
     # [delta_v (m/s), delta_steer (rad)]
     "action_size": 2,
-    "action_scale": [6.0, 0.4],   # max magnitude of each residual
+    "action_scale": [6.0, 0.0],   # max magnitude of each residual
     "action_bias":  [0.0, 0.0],
 
     # ── Vehicle ───────────────────────────────────────────────────
@@ -35,25 +35,25 @@ CONFIG = {
 
     # ── Learning rate schedule ────────────────────────────────────
     "learning_rate_schedule": {
-        "initial": 3e-4,
-        "final":   1e-5,
-        "max_decay_steps": 8_000,
+        "initial": 3e-5,
+        "final":   1e-6,
+        "max_decay_steps": 2_000,
         "power": 1.0,
     },
 
     # ── Entropy schedule ──────────────────────────────────────────
     "beta_schedule": {
-        "initial": 0.01,
-        "final":   0.001,
-        "max_decay_steps": 8_000,
+        "initial": 0.001,
+        "final":   0.0001,
+        "max_decay_steps": 1_000,
         "power": 1.0,
     },
 
     # ── Clip range schedule ───────────────────────────────────────
     "clip_range_schedule": {
-        "initial": 0.2,
-        "final":   0.1,
-        "max_decay_steps": 8_000,
+        "initial": 0.1,
+        "final":   0.01,
+        "max_decay_steps": 1_000,
         "power": 1.0,
     },
 
@@ -73,9 +73,9 @@ CONFIG = {
     # ── Reward weights ────────────────────────────────────────────
     "reward": {
         "w_lat":   0.1,
-        "w_lon":   0.01,
-        "w_yaw":   1.0,    
-        "w_v":     0.1,
+        "w_lon":   0.1,
+        "w_yaw":   0.01,    
+        "w_v":     0.01,
         "w_rev":   0.0,
 
         "w_roll_rate":  0.1,
@@ -84,20 +84,20 @@ CONFIG = {
         "deadband_pitch_deg":  4.0,
         "deadband_roll_deg": 6.0,
 
-        "w_vz": 1.0,
+        "w_vz": 2.0,
 
-        "w_res_v":     0.01,
-        "w_res_steer": 0.1,
+        "w_res_v":     0.005,
+        "w_res_steer": 0.00,
 
-        "w_dv":     0.01,
-        "w_dsteer": 0.05,
+        "w_dv":     0.005,
+        "w_dsteer": 0.00,
 
-        "w_progress": 100.0,
+        "w_progress": 50.0,
 
-        "success":        300.0,
-        "crash_rollover": -100.0,
-        "crash_stuck":     -50.0,
-        "crash_fall":     -100.0,
+        "success":        500.0,
+        "crash_rollover": -200.0,
+        "crash_stuck":    -100.0,
+        "crash_fall":     -200.0,
     },
 
     # ── Checkpoint ────────────────────────────────────────────────

@@ -47,6 +47,7 @@ TexturedBackground {
 }
 
 TexturedBackgroundLight {
+  castShadows FALSE
 }
 
 # --- BASE ---
@@ -93,6 +94,7 @@ Solid {
   children [
     CadShape {
       url ["media/curb.obj"]
+      castShadows FALSE
     }
   ]
 
@@ -112,6 +114,7 @@ Solid {
   children [
     CadShape {
       url ["media/speedbumps.obj"]
+      castShadows FALSE
     }
   ]
 
@@ -130,6 +133,7 @@ Solid {
   children [
     CadShape {
       url ["media/potholes.obj"]
+      castShadows FALSE
     }
   ]
 

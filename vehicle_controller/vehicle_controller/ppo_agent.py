@@ -100,11 +100,9 @@ class PPOAgentNode(Node):
 
         # ── Training counters ─────────────────────────────────────
         self.update_count     = 0
-        self.episode_rewards  = []
-        self.episode_lengths  = []
+        self.episode_count    = 0
         self._ep_reward       = 0.0
         self._ep_length       = 0
-        self._recent_ep_infos = deque(maxlen=100)
         self._control_step = 0
 
         # ── Observation cache ─────────────────────────────────────
@@ -141,10 +139,6 @@ class PPOAgentNode(Node):
             'terminal': 0.0
         }
 
-        # ── Pending reward/done ────────────────────────────────────
-        self._pending_result: int = None   # RESULT_* from rl_master
-        self._episode_done       = False
-
         # ── Previous action for the buffer ────────────────────────
         self._prev_action   = torch.zeros(self.config['action_size'])
         self._prev_log_prob = torch.zeros(self.config['action_size'])
@@ -167,10 +161,9 @@ class PPOAgentNode(Node):
         # ── Subscribers ───────────────────────────────────────────
         self.create_subscription(Image,       '/camera/segmentation',
                                  self._img_cb,  10)
+        
         self.create_subscription(Int32,       '/rl/result',
                                  self._result_cb,  1)
-        self.create_subscription(Bool,        '/sim/reset',
-                                 self._reset_cb,   1)
         
         self.create_subscription(Float64MultiArray, '/mpc/debug',
                                 self._mpc_debug_cb, 10)
@@ -181,9 +174,10 @@ class PPOAgentNode(Node):
                                  self._odom_cb, 10)
 
         # ── Publishers ────────────────────────────────────────────
-        self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
-        self.metrics_pub = self.create_publisher(Float64MultiArray, '/ppo/metrics', 10)
-        self.reward_terms_pub = self.create_publisher(Float64MultiArray, '/ppo/reward_terms', 10)
+        self.cmd_pub            = self.create_publisher(TwistStamped, '/cmd_vel', 10)
+        self.ep_met_pub         = self.create_publisher(Float64MultiArray, '/ppo/episode_metrics', 10)
+        self.train_met_pub      = self.create_publisher(Float64MultiArray, '/ppo/train_metrics', 10)
+        self.reward_terms_pub   = self.create_publisher(Float64MultiArray, '/ppo/reward_terms', 10)
 
         self.get_logger().info('PPO agent ready.')
 
@@ -284,9 +278,6 @@ class PPOAgentNode(Node):
         if result == 0:
             return
 
-        self._pending_result = result
-        self._episode_done   = True
-
         w = self.config['reward']
         if result == 1:
             terminal = w['success']
@@ -306,33 +297,33 @@ class PPOAgentNode(Node):
         if self._have_prev and self.training_mode:
             self._store_transition(done=True)
 
-        self._have_prev  = False
-        self._ep_reward  = 0.0
-        self._ep_length  = 0
-        self._pending_result = None
-        self._episode_done   = False
+        self.reset()
 
-    def _reset_cb(self, _msg: Bool):
+    def reset(self):
         """Reset recurrent state and episode tracking."""
         hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
         self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) else hxs
         self._have_prev = False
+        self._ep_reward = 0.0
+        self._ep_length = 0
+        
         self._prev_final_v          = 0.0
         self._prev_final_steer      = 0.0
         self._prev_prev_final_v     = 0.0
         self._prev_prev_final_steer = 0.0
-
         self._prev_track_progress   = 0.0
         self._dv                    = 0.0      
         self._dsteer                = 0.0
+        self._last_v_cmd_mpc        = 0.0
+        self._last_steer_mpc        = 0.0
 
-        self._last_v_cmd_mpc = 0.0
-        self._last_steer_mpc = 0.0
         with self._lock:
             self._e_lat = 0.0
             self._e_lon = 0.0
             self._e_yaw = 0.0
             self._e_v   = 0.0
+            self._cached_reward['terminal'] = 0.0
+            self._cached_reward['total']    = 0.0
 
     # ═══════════════════════════════════════════════════════════════
     # Main control loop (called once per sim step, sim is PAUSED)
@@ -415,9 +406,19 @@ class PPOAgentNode(Node):
         self._ep_length += 1
 
         if done:
-            self._recent_ep_infos.append({
-                'reward': self._ep_reward, 'length': self._ep_length
-            })
+            self.episode_count += 1
+
+            ep_msg = Float64MultiArray()
+            ep_msg.data = [
+                float(self.episode_count),
+                float(self._ep_reward),
+                float(self._ep_length),
+                float(self.update_count)
+            ]
+            self.ep_met_pub.publish(ep_msg)
+
+            self.writer.add_scalar('episode_raw/reward', self._ep_reward, self.episode_count)
+            self.writer.add_scalar('episode_raw/length', self._ep_length, self.episode_count)
 
         if self.buffer.full():
             self._train()
@@ -535,16 +536,6 @@ class PPOAgentNode(Node):
         self.update_count += 1
 
         # Logging
-        ep_info = self._recent_ep_infos
-        if ep_info:
-            r_mean = np.mean([e['reward'] for e in ep_info])
-            l_mean = np.mean([e['length'] for e in ep_info])
-            self.writer.add_scalar('episode/reward_mean', r_mean, step)
-            self.writer.add_scalar('episode/length_mean', l_mean, step)
-        else:
-            r_mean = float('nan')
-            l_mean = float('nan')
-
         self.writer.add_scalar('losses/policy_loss', stats[0], step)
         self.writer.add_scalar('losses/value_loss',  stats[1], step)
         self.writer.add_scalar('losses/loss',        stats[2], step)
@@ -558,19 +549,18 @@ class PPOAgentNode(Node):
             f'lr={lr:.2e} t={elapsed*1000:.0f}ms'
         )
 
-        metrics_msg = Float64MultiArray()
-        metrics_msg.data = [
-            float(step),
-            float(r_mean),
-            float(l_mean),
-            float(stats[0]),
-            float(stats[1]),
-            float(stats[2]),
-            float(stats[3]),
-            float(lr),
-            float(elapsed * 1000.0),
+        train_msg = Float64MultiArray()
+        train_msg.data = [
+            float(step),                # Update Step
+            float(stats[0]),            # Policy Loss
+            float(stats[1]),            # Value Loss
+            float(stats[2]),            # Total Loss
+            float(stats[3]),            # Entropy
+            float(lr),                  # Learning Rate
+            float(elapsed * 1000.0),    # Time ms
+            float(self.episode_count)   # Episode
         ]
-        self.metrics_pub.publish(metrics_msg)
+        self.train_met_pub.publish(train_msg)
 
         if step % cfg['save_interval'] == 0:
             self._save_checkpoint(step)
