@@ -413,12 +413,22 @@ class PPOAgentNode(Node):
                 float(self.episode_count),
                 float(self._ep_reward),
                 float(self._ep_length),
-                float(self.update_count)
+                float(self.update_count),
+                float(self._control_step),   # total env steps at episode end
             ]
             self.ep_met_pub.publish(ep_msg)
 
-            self.writer.add_scalar('episode_raw/reward', self._ep_reward, self.episode_count)
-            self.writer.add_scalar('episode_raw/length', self._ep_length, self.episode_count)
+            self.writer.add_scalar('episode_raw/reward', self._ep_reward, self._control_step)
+            self.writer.add_scalar('episode_raw/length', self._ep_length, self._control_step)
+
+            max_ep = self.config.get('max_episodes', 0)
+            if max_ep > 0 and self.episode_count >= max_ep:
+                self.get_logger().info(
+                    f'Reached max_episodes={max_ep}. Saving and stopping.')
+                self._save_checkpoint(self.update_count)
+                self.writer.close()
+                rclpy.try_shutdown()
+                return
 
         if self.buffer.full():
             self._train()
@@ -536,22 +546,23 @@ class PPOAgentNode(Node):
         self.update_count += 1
 
         # Logging
-        self.writer.add_scalar('losses/policy_loss', stats[0], step)
-        self.writer.add_scalar('losses/value_loss',  stats[1], step)
-        self.writer.add_scalar('losses/loss',        stats[2], step)
-        self.writer.add_scalar('losses/entropy',     stats[3], step)
-        self.writer.add_scalar('training/lr', lr, step)
+        total_steps = step * cfg['worker_steps']
+        self.writer.add_scalar('losses/policy_loss', stats[0], total_steps)
+        self.writer.add_scalar('losses/value_loss',  stats[1], total_steps)
+        self.writer.add_scalar('losses/loss',        stats[2], total_steps)
+        self.writer.add_scalar('losses/entropy',     stats[3], total_steps)
+        self.writer.add_scalar('training/lr', lr, total_steps)
 
         elapsed = time.perf_counter() - t0
         self.get_logger().info(
-            f'[Update {step}] loss={stats[2]:.4f} pi={stats[0]:.4f} '
+            f'[Update {step} | Step {total_steps}] loss={stats[2]:.4f} pi={stats[0]:.4f} '
             f'v={stats[1]:.4f} H={stats[3]:.4f} '
             f'lr={lr:.2e} t={elapsed*1000:.0f}ms'
         )
 
         train_msg = Float64MultiArray()
         train_msg.data = [
-            float(step),                # Update Step
+            float(total_steps),         # Total env steps (common scale)
             float(stats[0]),            # Policy Loss
             float(stats[1]),            # Value Loss
             float(stats[2]),            # Total Loss
@@ -564,6 +575,13 @@ class PPOAgentNode(Node):
 
         if step % cfg['save_interval'] == 0:
             self._save_checkpoint(step)
+
+        if self.update_count >= cfg.get('updates', 0):
+            self.get_logger().info(
+                f'Reached max updates={cfg["updates"]}. Saving and stopping.')
+            self._save_checkpoint(self.update_count)
+            self.writer.close()
+            rclpy.try_shutdown()
 
     def _train_mini_batch(self, mb: dict, lr: float, clip: float,
                           beta: float) -> list:
@@ -587,7 +605,7 @@ class PPOAgentNode(Node):
             entropies  = entropies[mask]
 
         adv = mb['advantages']
-        adv_norm = (adv - adv.mean()) / (adv.std() + 1e-8)
+        adv_norm = (adv - adv.mean()) / (adv.std(correction=0) + 1e-8)
 
         # Expand adv for multi-dim action
         adv_exp = adv_norm.unsqueeze(-1).expand_as(log_probs)

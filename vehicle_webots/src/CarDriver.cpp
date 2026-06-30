@@ -214,7 +214,8 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 1 complete: MPC published its command
-// → apply it to actuators, transition to WAIT_PPO, pause sim
+// Training: transitions state machine WAIT_MPC → WAIT_PPO, pauses sim
+// Eval:     applies command immediately, no state change needed
 // ─────────────────────────────────────────────────────────────────
 void CarDriver::mpcCmdCallback(
     const geometry_msgs::msg::TwistStamped::SharedPtr msg)
@@ -222,14 +223,15 @@ void CarDriver::mpcCmdCallback(
     int64_t stamp = rclcpp::Time(msg->header.stamp).nanoseconds();
     last_mpc_stamp_ns_ = stamp;
 
-    if (!system_ready_ || sync_state_ != SyncState::WAIT_MPC)
-        return;
+    if (!system_ready_) return;
 
-    // Only accept commands that were generated after our trigger
-    if (stamp <= trigger_stamp_ns_)
-        return;
+    // Eval mode: MPC data flows to PPO via /mpc/debug — car is driven only by PPO.
+    if (!training_mode_) return;
 
-    // Apply command to actuators
+    if (sync_state_ != SyncState::WAIT_MPC) return;
+    if (stamp <= trigger_stamp_ns_) return;
+
+    // Store as fallback — only applied if PPO times out, never otherwise.
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
     double phi   = 0.0;
@@ -237,24 +239,18 @@ void CarDriver::mpcCmdCallback(
         phi = -std::atan2(WHEELBASE * omega, v);
         if (v < 0.0) phi = -phi;
     }
-    target_steer_ = std::clamp(phi, -MAX_STEERING, MAX_STEERING);
-    target_speed_ = v;
-    wbu_driver_set_cruising_speed(v * 3.6);
-    wbu_driver_set_steering_angle(target_steer_);
+    mpc_fallback_v_     = v;
+    mpc_fallback_steer_ = std::clamp(phi, -MAX_STEERING, MAX_STEERING);
 
-    // Transition: MPC done → pause and wait for PPO
     sync_state_ = SyncState::WAIT_PPO;
-
-    if (training_mode_) {
-        wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
-        RCLCPP_DEBUG(node_->get_logger(),
-            "MPC cmd received → PAUSE (waiting for PPO)");
-    }
+    wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
+    RCLCPP_DEBUG(node_->get_logger(), "MPC cmd stored → PAUSE (waiting for PPO)");
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 2 complete: PPO published the final command
-// → apply it, resume FAST, go back to RUNNING
+// Training: transitions state machine WAIT_PPO → RUNNING, resumes FAST
+// Eval:     applies command immediately, no state change needed
 // ─────────────────────────────────────────────────────────────────
 void CarDriver::cmdVelCallback(
     const geometry_msgs::msg::TwistStamped::SharedPtr msg)
@@ -262,14 +258,13 @@ void CarDriver::cmdVelCallback(
     int64_t stamp = rclcpp::Time(msg->header.stamp).nanoseconds();
     last_ppo_stamp_ns_ = stamp;
 
-    if (!system_ready_ || sync_state_ != SyncState::WAIT_PPO)
-        return;
+    if (!system_ready_) return;
 
-    // Only accept if this is a new command (not a stale one)
-    if (stamp <= trigger_stamp_ns_)
-        return;
+    if (training_mode_) {
+        if (sync_state_ != SyncState::WAIT_PPO) return;
+        if (stamp <= trigger_stamp_ns_) return;
+    }
 
-    // Apply command regardless of state (handles non-training mode too)
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
     double phi   = 0.0;
@@ -282,10 +277,8 @@ void CarDriver::cmdVelCallback(
     wbu_driver_set_cruising_speed(v * 3.6);
     wbu_driver_set_steering_angle(target_steer_);
 
-    // Transition: PPO done → resume FAST, go back to RUNNING
-    sync_state_ = SyncState::RUNNING;
-
     if (training_mode_) {
+        sync_state_ = SyncState::RUNNING;
         wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
         RCLCPP_DEBUG(node_->get_logger(),
             "PPO cmd received → FAST (RUNNING)");
@@ -329,6 +322,10 @@ void CarDriver::step()
     switch (sync_state_) {
 
     case SyncState::RUNNING: {
+        // In eval mode, spin each step so MPC/PPO callbacks are processed.
+        if (!training_mode_)
+            rclcpp::spin_some(node_->get_node_base_interface());
+
         // Initialize trigger clock on first entry
         if (last_rl_trigger_ < 0.0)
             last_rl_trigger_ = current_time;
@@ -352,7 +349,7 @@ void CarDriver::step()
 
         sync_state_ = SyncState::WAIT_MPC;
 
-        // ── Phase 1: wait for MPC (real-time) ─────────────────────
+        // ── Training mode: synchronous two-phase wait ──────────────
         if (training_mode_) {
             bool mpc_ok = spinUntil(
                 [this]{ return sync_state_ == SyncState::WAIT_PPO; },
@@ -366,30 +363,33 @@ void CarDriver::step()
                 wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
                 break;
             }
-            // mpcCmdCallback already paused the sim and set WAIT_PPO
 
-            // ── Phase 2: wait for PPO (paused) ────────────────────
             bool ppo_ok = spinUntil(
                 [this]{ return sync_state_ == SyncState::RUNNING; },
                 PPO_TIMEOUT_MS);
 
             if (!ppo_ok) {
                 RCLCPP_WARN(node_->get_logger(),
-                    "PPO timeout (%d ms) — resuming with last MPC command",
+                    "PPO timeout (%d ms) — applying MPC fallback command",
                     PPO_TIMEOUT_MS);
+                target_speed_ = mpc_fallback_v_;
+                target_steer_ = mpc_fallback_steer_;
+                wbu_driver_set_cruising_speed(mpc_fallback_v_ * 3.6);
+                wbu_driver_set_steering_angle(mpc_fallback_steer_);
                 sync_state_ = SyncState::RUNNING;
                 wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
             }
-            // If ppo_ok: cmdVelCallback already set RUNNING and resumed FAST
+        } else {
+            // Eval mode: don't block — callbacks apply commands as they arrive.
+            // Stay in RUNNING so triggers keep firing every 50 ms.
+            sync_state_ = SyncState::RUNNING;
         }
         break;
     }
 
     case SyncState::WAIT_MPC:
     case SyncState::WAIT_PPO:
-        // Waiting is handled inside the RUNNING case via spinUntil.
-        // These states should not be reached from a fresh step() call
-        // outside of training mode, but handle gracefully anyway.
+        // Only reached in training mode (spinUntil handles the wait there).
         break;
     }
 }

@@ -172,7 +172,7 @@ class Buffer:
             yield {
                 "imgs":        imgs_b,
                 "vecs":        vecs_b,
-                "actions":     act_b[mask_b],
+                "actions":     act_b,
                 "log_probs":   lp_b[mask_b],
                 "values":      val_b,
                 "advantages":  adv_b,

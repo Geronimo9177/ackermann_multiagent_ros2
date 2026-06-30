@@ -13,6 +13,7 @@ RUN_ID         = 'speedbump_v1'
 def generate_launch_description():
     use_ground_truth             = LaunchConfiguration('use_ground_truth')
     run_ppo_debug_visualizer     = LaunchConfiguration('run_ppo_debug_visualizer')
+    training_mode                = LaunchConfiguration('training_mode')
 
     declare_use_ground_truth = DeclareLaunchArgument(
         'use_ground_truth',
@@ -21,6 +22,11 @@ def generate_launch_description():
     declare_run_ppo_debug_visualizer = DeclareLaunchArgument(
         'run_ppo_debug_visualizer',
         default_value='true',
+    )
+    declare_training_mode = DeclareLaunchArgument(
+        'training_mode',
+        default_value='false',
+        description='true=train, false=evaluate last checkpoint',
     )
 
     webots_pkg       = get_package_share_directory('vehicle_webots')
@@ -31,7 +37,7 @@ def generate_launch_description():
             os.path.join(webots_pkg, 'launch', 'ackermann_webots.launch.py')
         ),
         launch_arguments={
-            'training_mode':   'true',
+            'training_mode':    training_mode,
             'use_ground_truth': use_ground_truth
         }.items()
     )
@@ -53,7 +59,7 @@ def generate_launch_description():
         name='rl_master',
         output='screen',
         parameters=[{
-            'training_mode':   True,
+            'training_mode':    training_mode,
             'use_ground_truth': use_ground_truth,
         }]
     )
@@ -64,7 +70,7 @@ def generate_launch_description():
         name='ppo_agent',
         output='screen',
         parameters=[{
-            'training_mode':    True,
+            'training_mode':    training_mode,
             'use_ground_truth': use_ground_truth,
             'run_id':           RUN_ID,
             'checkpoint_dir':   CHECKPOINT_DIR,
@@ -86,6 +92,7 @@ def generate_launch_description():
     return LaunchDescription([
         declare_use_ground_truth,
         declare_run_ppo_debug_visualizer,
+        declare_training_mode,
         webots_launch,
         controller_launch,
         rl_master_node,

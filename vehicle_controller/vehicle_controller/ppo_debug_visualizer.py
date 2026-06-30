@@ -78,13 +78,13 @@ class PPODebugVisualizer(Node):
 
         # Escribir encabezados
         self._metrics_writer.writerow([
-           'step', 'policy_loss', 'value_loss', 'total_loss', 'entropy', 'lr', 'update_ms', 'current_episode'
+           'total_env_steps', 'policy_loss', 'value_loss', 'total_loss', 'entropy', 'lr', 'update_ms', 'current_episode'
         ])
         self._rewards_writer.writerow([
             'step', 'total', 'lat', 'lon', 'yaw', 'v', 'slew', 'rates', 'vz', 'res', 'progress', 'term'
         ])
         self._ep_met_writer.writerow([
-            'episode', 'raw_reward', 'raw_length_steps', 'at_update_step'
+            'episode', 'raw_reward', 'raw_length_steps', 'at_update_step', 'total_env_steps'
         ])
 
         # Flush inmediato para que el encabezado quede escrito
@@ -131,10 +131,10 @@ class PPODebugVisualizer(Node):
         self.axes_m[6].set_yscale('log')
         self.axes_m[6].set_ylim(1e-6, 1e-3)
 
-        self.axes_m[0].set_xlabel('Episode')
-        self.axes_m[1].set_xlabel('Episode')
-        self.axes_m[6].set_xlabel('Update')
-        self.axes_m[7].set_xlabel('Update')
+        self.axes_m[0].set_xlabel('Env Steps')
+        self.axes_m[1].set_xlabel('Env Steps')
+        self.axes_m[6].set_xlabel('Env Steps')
+        self.axes_m[7].set_xlabel('Env Steps')
 
         for ax in self.axes_m:
             ax.grid(True, linestyle='--', alpha=0.6)
@@ -191,18 +191,19 @@ class PPODebugVisualizer(Node):
     # ====================================================================
 
     def ep_met_cb(self, msg: Float64MultiArray):
-        if len(msg.data) < 4: return
+        if len(msg.data) < 5: return
 
-        episode_num = int(msg.data[0])
-        raw_reward  = float(msg.data[1])
-        raw_length  = int(msg.data[2])
-        at_update   = int(msg.data[3])
+        episode_num  = int(msg.data[0])
+        raw_reward   = float(msg.data[1])
+        raw_length   = int(msg.data[2])
+        at_update    = int(msg.data[3])
+        total_steps  = int(msg.data[4])
 
-        self.ep_x.append(episode_num)
+        self.ep_x.append(total_steps)
         self.ep_reward.append(raw_reward)
         self.ep_length.append(raw_length)
 
-        self._ep_met_writer.writerow([episode_num, raw_reward, raw_length, at_update])
+        self._ep_met_writer.writerow([episode_num, raw_reward, raw_length, at_update, total_steps])
         self._ep_met_file.flush()
 
 

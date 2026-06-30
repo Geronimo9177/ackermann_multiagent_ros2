@@ -125,6 +125,10 @@ private:
   int64_t last_mpc_stamp_ns_{0};   // stamp of last /cmd_vel_mpc seen
   int64_t last_ppo_stamp_ns_{0};   // stamp of last /cmd_vel seen
 
+  // MPC command stored as fallback — applied only if PPO times out
+  double mpc_fallback_v_{0.0};
+  double mpc_fallback_steer_{0.0};
+
   // Safety timeouts (wall-clock milliseconds)
   static constexpr int MPC_TIMEOUT_MS = 300;   // max wait for MPC
   static constexpr int PPO_TIMEOUT_MS = 3000;   // max wait for PPO (training)

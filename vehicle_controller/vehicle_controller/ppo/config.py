@@ -26,18 +26,19 @@ CONFIG = {
     # ── PPO hyperparameters ───────────────────────────────────────
     "gamma":  0.99,
     "lamda":  0.95,
-    "epochs": 4,
-    "n_mini_batch": 4,
-    "worker_steps": 256,          # steps collected before each update
+    "epochs": 8,
+    "n_mini_batch": 8,
+    "worker_steps": 1024,          # steps collected before each update
     "value_loss_coefficient": 0.5,
     "max_grad_norm": 0.5,
-    "updates": 10_000,
+    "updates":      0,   # stop after N gradient updates (0 = disabled)
+    "max_episodes": 200,   # stop after N episodes        (0 = disabled)
 
     # ── Learning rate schedule ────────────────────────────────────
     "learning_rate_schedule": {
         "initial": 3e-5,
         "final":   1e-6,
-        "max_decay_steps": 2_000,
+        "max_decay_steps": 3_000,
         "power": 1.0,
     },
 
@@ -53,7 +54,7 @@ CONFIG = {
     "clip_range_schedule": {
         "initial": 0.1,
         "final":   0.01,
-        "max_decay_steps": 1_000,
+        "max_decay_steps": 1_500,
         "power": 1.0,
     },
 
@@ -62,11 +63,11 @@ CONFIG = {
     "cnn_channels": [32, 64, 64],  # conv layer output channels
 
     # ── Recurrence (flip use_recurrence to True to enable LSTM) ──
-    "use_recurrence": False,
+    "use_recurrence": True,
     "recurrence": {
         "layer_type": "lstm",       # "gru" or "lstm"
         "hidden_state_size": 256,
-        "sequence_length": 16,      # steps per BPTT sequence
+        "sequence_length": 32,      # steps per BPTT sequence
         "reset_hidden_state": True, # reset on episode done
     },
 
