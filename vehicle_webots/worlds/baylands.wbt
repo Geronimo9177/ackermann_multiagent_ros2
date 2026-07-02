@@ -15,9 +15,8 @@ WorldInfo {
   lineScale 1
   contactProperties [
     ContactProperties {
-      coulombFriction [
-        8
-      ]
+      coulombFriction [ 8 ]
+      bounce  0.0
       softCFM 1e-05
       bumpSound ""
       rollSound ""
@@ -25,9 +24,8 @@ WorldInfo {
     }
     ContactProperties {
       material2 "TeslaModel3Wheel"
-      coulombFriction [
-        8
-      ]
+      coulombFriction [ 8 ]
+      bounce  0.0
       softCFM 1e-05
       bumpSound ""
       rollSound ""

@@ -47,7 +47,8 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'training_mode': True,
-            'use_ground_truth': use_ground_truth}
+            'use_ground_truth': use_ground_truth,
+            'use_sim_time': True}
             ]
     )
 

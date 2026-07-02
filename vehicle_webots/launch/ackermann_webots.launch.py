@@ -17,6 +17,7 @@ def generate_launch_description():
 
     training_mode = LaunchConfiguration('training_mode')
     use_ground_truth = LaunchConfiguration('use_ground_truth')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
@@ -27,6 +28,11 @@ def generate_launch_description():
     declare_use_ground_truth = DeclareLaunchArgument(
         'use_ground_truth', default_value='false',
         description='Si es true, no lanza los EKF ni filtros'
+    )
+    
+    declare_use_sim_time = DeclareLaunchArgument(
+        'use_sim_time', default_value='true',
+        description='Sincroniza todos los nodos con /clock de Webots (Ros2Supervisor)'
     )
 
     pkg = 'vehicle_webots'
@@ -50,6 +56,7 @@ def generate_launch_description():
         parameters=[
             {'robot_description': robot_description_path},
             {'training_mode': training_mode},
+            {'use_sim_time': use_sim_time},   # <-- agregado
         ]
     )
 
@@ -59,6 +66,7 @@ def generate_launch_description():
         executable='static_transform_publisher',
         arguments=['1.11', '0', '1.16', '0', '0', '0', 'base_link', 'gps_link'],
         output='screen',
+        parameters=[{'use_sim_time': use_sim_time}],   # <-- agregado
         condition=UnlessCondition(use_ground_truth)
     )
 
@@ -68,7 +76,7 @@ def generate_launch_description():
         executable='imu_filter_madgwick_node',
         name='imu_filter_madgwick',
         output='screen',
-        parameters=[sensor_fusion_config],
+        parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],  # <-- agregado
         remappings=[
             ('imu/data_raw', '/imu/data_raw'),
             ('imu/mag',      '/magnetometer'),
@@ -84,7 +92,7 @@ def generate_launch_description():
         executable='ekf_node',
         name='ekf_filter_node_odom',
         output='screen',
-        parameters=[sensor_fusion_config],
+        parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],  # <-- agregado
         remappings=[('odometry/filtered', '/odometry/local'),
                     ('set_pose', '/ekf_local/set_pose')],
         condition=UnlessCondition(use_ground_truth)
@@ -96,7 +104,7 @@ def generate_launch_description():
         executable='ekf_node',
         name='ekf_filter_node_map',
         output='screen',
-        parameters=[sensor_fusion_config],
+        parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],  # <-- agregado
         remappings=[('odometry/filtered', '/odometry/global'),
                     ('set_pose', '/ekf_global/set_pose')],
         condition=UnlessCondition(use_ground_truth)
@@ -108,7 +116,7 @@ def generate_launch_description():
         executable='navsat_transform_node',
         name='navsat_transform_node',
         output='screen',
-        parameters=[sensor_fusion_config],
+        parameters=[sensor_fusion_config, {'use_sim_time': use_sim_time}],  # <-- agregado
         remappings=[
             ('imu/data',          '/imu/data'),
             ('gps/fix',           '/gps/fix'),
@@ -126,6 +134,7 @@ def generate_launch_description():
         parameters=[{
             'drift_threshold': 1.5,
             'correction_alpha': 0.02,
+            'use_sim_time': use_sim_time,   # <-- agregado
         }],
         condition=UnlessCondition(use_ground_truth)
     )
@@ -135,7 +144,7 @@ def generate_launch_description():
         target_driver=vehicle_driver,
         nodes_to_start=[
             TimerAction(
-                period=2.0, 
+                period=2.0,
                 actions=[
                     gps_tf,
                     imu_filter,
@@ -151,6 +160,7 @@ def generate_launch_description():
     return LaunchDescription([
         declare_training_mode,
         declare_use_ground_truth,
+        declare_use_sim_time,
         webots,
         webots._supervisor,
         vehicle_driver,
