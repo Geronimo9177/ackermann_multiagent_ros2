@@ -25,7 +25,7 @@ def generate_launch_description():
     )
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
-        default_value='false',
+        default_value='true',
         description='true=train, false=evaluate last checkpoint',
     )
 

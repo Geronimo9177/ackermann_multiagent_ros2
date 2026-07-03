@@ -131,8 +131,8 @@ class PPODebugVisualizer(Node):
         self.axes_m[6].set_yscale('log')
         self.axes_m[6].set_ylim(1e-6, 1e-3)
 
-        self.axes_m[0].set_xlabel('Env Steps')
-        self.axes_m[1].set_xlabel('Env Steps')
+        self.axes_m[0].set_xlabel('Episode')
+        self.axes_m[1].set_xlabel('Episode')
         self.axes_m[6].set_xlabel('Env Steps')
         self.axes_m[7].set_xlabel('Env Steps')
 
@@ -199,7 +199,7 @@ class PPODebugVisualizer(Node):
         at_update    = int(msg.data[3])
         total_steps  = int(msg.data[4])
 
-        self.ep_x.append(total_steps)
+        self.ep_x.append(episode_num)
         self.ep_reward.append(raw_reward)
         self.ep_length.append(raw_length)
 

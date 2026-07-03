@@ -498,7 +498,8 @@ class PPOAgentNode(Node):
         msg.header.stamp   = self.get_clock().now().to_msg()
         msg.twist.linear.x = float(v_final)
         msg.twist.angular.z = float(w_final)
-        self.cmd_pub.publish(msg)
+        if rclpy.ok():
+            self.cmd_pub.publish(msg)
 
     # ═══════════════════════════════════════════════════════════════
     # Training
@@ -576,9 +577,10 @@ class PPOAgentNode(Node):
         if step % cfg['save_interval'] == 0:
             self._save_checkpoint(step)
 
-        if self.update_count >= cfg.get('updates', 0):
+        self_max_updates = cfg.get('updates', 0)
+        if self_max_updates > 0 and self.update_count >= self_max_updates:
             self.get_logger().info(
-                f'Reached max updates={cfg["updates"]}. Saving and stopping.')
+                f'Reached max updates={self_max_updates}. Saving and stopping.')
             self._save_checkpoint(self.update_count)
             self.writer.close()
             rclpy.try_shutdown()
@@ -685,7 +687,8 @@ def main():
         pass
     finally:
         node.writer.close()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
