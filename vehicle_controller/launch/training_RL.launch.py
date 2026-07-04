@@ -12,15 +12,10 @@ RUN_ID         = 'speedbump_v1'
 
 def generate_launch_description():
     use_ground_truth             = LaunchConfiguration('use_ground_truth')
-    run_ppo_debug_visualizer     = LaunchConfiguration('run_ppo_debug_visualizer')
     training_mode                = LaunchConfiguration('training_mode')
 
     declare_use_ground_truth = DeclareLaunchArgument(
         'use_ground_truth',
-        default_value='true',
-    )
-    declare_run_ppo_debug_visualizer = DeclareLaunchArgument(
-        'run_ppo_debug_visualizer',
         default_value='true',
     )
     declare_training_mode = DeclareLaunchArgument(
@@ -82,16 +77,15 @@ def generate_launch_description():
         executable='ppo_debug_visualizer',
         name='ppo_debug_visualizer',
         output='screen',
-        condition=IfCondition(run_ppo_debug_visualizer),
+        condition=IfCondition(training_mode),
         parameters=[{
-            'checkpoint_dir': CHECKPOINT_DIR,   # ← mismo que ppo_agent
-            'run_id':         RUN_ID,            # ← mismo que ppo_agent
+            'checkpoint_dir': CHECKPOINT_DIR,
+            'run_id':         RUN_ID,
         }]
     )
 
     return LaunchDescription([
         declare_use_ground_truth,
-        declare_run_ppo_debug_visualizer,
         declare_training_mode,
         webots_launch,
         controller_launch,

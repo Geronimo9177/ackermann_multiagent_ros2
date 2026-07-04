@@ -28,7 +28,7 @@ CONFIG = {
     "lamda":  0.95,
     "epochs": 8,
     "n_mini_batch": 8,
-    "worker_steps": 1024,          # steps collected before each update
+    "worker_steps": 256,          # steps collected before each update
     "value_loss_coefficient": 0.5,
     "max_grad_norm": 0.5,
     "updates":      0,   # stop after N gradient updates (0 = disabled)
@@ -38,7 +38,7 @@ CONFIG = {
     "learning_rate_schedule": {
         "initial": 3e-5,
         "final":   1e-6,
-        "max_decay_steps": 3_000,
+        "max_decay_steps": 1_000,
         "power": 1.0,
     },
 
@@ -76,7 +76,7 @@ CONFIG = {
         "w_lat":   0.1,
         "w_lon":   0.1,
         "w_yaw":   0.01,    
-        "w_v":     0.01,
+        "w_v":     0.1,
         "w_rev":   0.0,
 
         "w_roll_rate":  0.1,
@@ -85,7 +85,7 @@ CONFIG = {
         "deadband_pitch_deg":  4.0,
         "deadband_roll_deg": 6.0,
 
-        "w_vz": 2.0,
+        "w_vz": 20.0,
 
         "w_res_v":     0.005,
         "w_res_steer": 0.00,
@@ -102,6 +102,6 @@ CONFIG = {
     },
 
     # ── Checkpoint ────────────────────────────────────────────────
-    "save_interval": 100,   # save model every N updates
+    "save_interval_episodes": 10,   # save model every N episodes
     "checkpoint_dir": "./checkpoints",
 }

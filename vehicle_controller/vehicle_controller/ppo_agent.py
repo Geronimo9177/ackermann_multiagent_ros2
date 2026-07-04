@@ -425,10 +425,14 @@ class PPOAgentNode(Node):
             if max_ep > 0 and self.episode_count >= max_ep:
                 self.get_logger().info(
                     f'Reached max_episodes={max_ep}. Saving and stopping.')
-                self._save_checkpoint(self.update_count)
+                self._save_checkpoint(self.episode_count)
                 self.writer.close()
                 rclpy.try_shutdown()
                 return
+
+            save_every = self.config.get('save_interval_episodes', 10)
+            if save_every > 0 and self.episode_count % save_every == 0:
+                self._save_checkpoint(self.episode_count)
 
         if self.buffer.full():
             self._train()
@@ -574,14 +578,11 @@ class PPOAgentNode(Node):
         ]
         self.train_met_pub.publish(train_msg)
 
-        if step % cfg['save_interval'] == 0:
-            self._save_checkpoint(step)
-
         self_max_updates = cfg.get('updates', 0)
         if self_max_updates > 0 and self.update_count >= self_max_updates:
             self.get_logger().info(
                 f'Reached max updates={self_max_updates}. Saving and stopping.')
-            self._save_checkpoint(self.update_count)
+            self._save_checkpoint(self.episode_count)
             self.writer.close()
             rclpy.try_shutdown()
 
@@ -641,10 +642,10 @@ class PPOAgentNode(Node):
     # Checkpoint helpers
     # ═══════════════════════════════════════════════════════════════
 
-    def _save_checkpoint(self, step: int):
-        path = os.path.join(self.ckpt_dir, f'ppo_{self.run_id}_{step:06d}.pt')
+    def _save_checkpoint(self, episode: int):
+        path = os.path.join(self.ckpt_dir, f'ppo_{self.run_id}_ep{episode:06d}.pt')
         torch.save({
-            'step':           step,
+            'episode_count':  episode,
             'model':          self.model.state_dict(),
             'optimizer':      self.optimizer.state_dict(),
             'update_count':   self.update_count,
@@ -663,6 +664,7 @@ class PPOAgentNode(Node):
         self.model.load_state_dict(ckpt['model'])
         self.optimizer.load_state_dict(ckpt['optimizer'])
         self.update_count = ckpt.get('update_count', 0)
+        self.episode_count = ckpt.get('episode_count', 0)
         self.get_logger().info(f'Checkpoint loaded ← {path}')
 
     # ── Helpers ───────────────────────────────────────────────────
