@@ -1,0 +1,6 @@
+<library path="vehicle_webots_driver">
+  <class type="vehicle_webots::CarDriver"
+         base_class_type="webots_ros2_driver::PluginInterface">
+    <description>Tesla vehicle driver for Webots</description>
+  </class>
+</library>

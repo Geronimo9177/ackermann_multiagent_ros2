@@ -26,7 +26,7 @@ class OdometryComparer(Node):
         self.window_size = self.get_parameter('window_size').value
 
         mode_raw = str(self.get_parameter('ekf_mode').value).strip().lower()
-        if mode_raw not in ('local', 'global'):
+        if mode_raw not in ('local', 'global', 'fused'):
             self.get_logger().warn(
                 f"Invalid ekf_mode='{mode_raw}', expected 'local' or 'global'. Using 'global'."
             )

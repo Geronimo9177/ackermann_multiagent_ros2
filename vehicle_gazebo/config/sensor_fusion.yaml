@@ -6,7 +6,7 @@ navsat_transform_node:
     magnetic_declination_radians: 0.0 
     yaw_offset: 0.0 
     zero_altitude: false
-    broadcast_utm_transform: true
+    broadcast_cartesian_transform: true
     publish_filtered_gps: true
     use_odometry_yaw: false
     wait_for_datum: true
@@ -70,7 +70,9 @@ ekf_filter_node_map:
         sensor_timeout: 0.1
         two_d_mode: false
         publish_tf: true
- 
+        smooth_lagged_data: true
+        history_length: 1.0
+
         map_frame: map             
         odom_frame: odom            
         base_link_frame: base_link 
@@ -100,6 +102,7 @@ ekf_filter_node_map:
         odom1_queue_size: 10
         odom1_differential: false
         odom1_relative: false
+        odom1_pose_rejection_threshold: 2.5
 
         imu0: /imu/data
         imu0_config: [false, false, false,

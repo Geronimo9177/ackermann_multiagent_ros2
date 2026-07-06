@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot name="Tesla">
+  <link name="base_link"/>
+
+  <webots>
+    <!-- Plugin -->
+    <plugin type="vehicle_webots::CarDriver"/>
+  </webots>
+
+</robot>

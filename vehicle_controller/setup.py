@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/trajectories', glob('trajectories/*.csv')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -29,7 +30,7 @@ setup(
     'console_scripts': [
         'ackermann_mpc = vehicle_controller.ackermann_mpc:main',
         'topp = vehicle_controller.topp:main',
-        'trajectory_publisher = vehicle_controller.trayectory_publisher:main',
+        'trajectory_publisher = vehicle_controller.trajectory_publisher:main',
         'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
     ],
 },
