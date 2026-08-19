@@ -35,6 +35,7 @@ class RLMaster(Node):
 
         self.training_mode = self.get_parameter('training_mode').value
         self.use_ground_truth = self.get_parameter('use_ground_truth').value
+        self.trajectories_subdir = 'train' if self.training_mode else 'test'
 
         self._traj_process   = None 
 
@@ -175,7 +176,7 @@ class RLMaster(Node):
     def start_episode(self):
         traj_file = self._pick_random_trajectory()
         if traj_file is None:
-            self.get_logger().error(f'No trajectories found in: {self.trajectories_dir}')
+            self.get_logger().error(f'No trajectories found in: {os.path.join(self.trajectories_dir, self.trajectories_subdir)}')
             return
 
         self._episode_count  += 1
@@ -183,8 +184,7 @@ class RLMaster(Node):
 
         self._progress_history.clear()
 
-        filename = os.path.basename(traj_file)
-        self.get_logger().info(f'[Ep {self._episode_count}] Trajectory: {filename}')
+        self.get_logger().info(f'[Ep {self._episode_count}] Trajectory: {traj_file}')
 
         # Immediate termination of the previous process to avoid freezes
         if self._traj_process is not None:
@@ -196,7 +196,7 @@ class RLMaster(Node):
 
         self._traj_process = subprocess.Popen([
             'ros2', 'run', 'vehicle_controller', 'trajectory_publisher',
-            '--ros-args', '-p', f'trajectory_file:={filename}'
+            '--ros-args', '-p', f'trajectory_file:={traj_file}'
         ])
     
     def _end_episode(self, result: int):
@@ -228,8 +228,10 @@ class RLMaster(Node):
 
     # ── Helpers ──────────────────────────────────────────────────
     def _pick_random_trajectory(self):
-        files = glob.glob(os.path.join(self.trajectories_dir, '*.csv'))
-        return random.choice(files) if files else None
+        files = glob.glob(os.path.join(self.trajectories_dir, self.trajectories_subdir, '*.csv'))
+        if not files:
+            return None
+        return os.path.join(self.trajectories_subdir, os.path.basename(random.choice(files)))
 
     def shutdown(self):
         if self._traj_process is not None:
