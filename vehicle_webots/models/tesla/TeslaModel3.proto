@@ -52,8 +52,8 @@ PROTO TeslaModel3 [
     engineMaxRPM 25000
     suspensionFrontDampingConstant 30000
     suspensionRearDampingConstant  30000
-    suspensionFrontSpringConstant 150000
-    suspensionRearSpringConstant 150000
+    suspensionFrontSpringConstant 120000
+    suspensionRearSpringConstant 120000
     wheelsDampingConstant 3
     gearRatio [-6.3 9]
     wheelFrontLeft TeslaModel3Wheel {
