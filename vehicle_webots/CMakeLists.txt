@@ -53,7 +53,7 @@ install(DIRECTORY include/
 
 # ── Install launch files, worlds, and models ─────────────────────────────────────────────────
 install(
-  DIRECTORY config launch worlds models
+  DIRECTORY config launch worlds models controllers
   DESTINATION share/${PROJECT_NAME}
 )
 
