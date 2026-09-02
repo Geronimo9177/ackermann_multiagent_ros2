@@ -9,5 +9,5 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 1
-map_Kd /home/geronimo/Downloads/baylands/media/Textures/PSH_Color.jpg
-map_Bump -bm 0.100000 /home/geronimo/Downloads/baylands/media/Textures/PSH_Normal.png
+map_Kd ../Textures/PSH_Color.jpg
+map_Bump -bm 0.100000 ../Textures/PSH_Normal.png
