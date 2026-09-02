@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Bool, Int32
+from std_srvs.srv import Trigger
 from nav_msgs.msg import Odometry
 import subprocess
 import os
@@ -56,6 +57,8 @@ class RLMaster(Node):
         self.start_pub  = self.create_publisher(Bool,  '/sim/start',  1)
         self.reset_pub  = self.create_publisher(Bool,  '/sim/reset',  1)
         self.result_pub = self.create_publisher(Int32, '/rl/result', 1)
+        self.speedbump_client = self.create_client(
+            Trigger, '/speedbump_control/reset_episode')
 
         # Subscribers
         self.topp_sub = self.create_subscription(
@@ -184,7 +187,32 @@ class RLMaster(Node):
 
         self._progress_history.clear()
 
-        self.get_logger().info(f'[Ep {self._episode_count}] Trajectory: {traj_file}')
+        self.get_logger().info(
+            f'[Ep {self._episode_count}] Resetting speed bumps before: {traj_file}')
+
+        if not self.speedbump_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error(
+                'SpeedBumpSupervisor service is not available; episode not started')
+            return
+
+        future = self.speedbump_client.call_async(Trigger.Request())
+        future.add_done_callback(
+            lambda result: self._on_speedbumps_reset(result, traj_file))
+
+    def _on_speedbumps_reset(self, future, traj_file):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().error(f'Speed bump reset failed: {error}')
+            return
+
+        if not response.success:
+            self.get_logger().error(
+                f'Speed bump reset rejected: {response.message}')
+            return
+
+        self.get_logger().info(
+            f'[Ep {self._episode_count}] {response.message}')
 
         # Immediate termination of the previous process to avoid freezes
         if self._traj_process is not None:

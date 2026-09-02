@@ -7,7 +7,7 @@ from webots_ros2_driver.webots_launcher import WebotsLauncher
 from webots_ros2_driver.webots_controller import WebotsController
 from webots_ros2_driver.wait_for_controller_connection import WaitForControllerConnection
 from launch.event_handlers import OnProcessExit
-from launch.actions import RegisterEventHandler, TimerAction, DeclareLaunchArgument
+from launch.actions import RegisterEventHandler, TimerAction, DeclareLaunchArgument, SetEnvironmentVariable
 from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import UnlessCondition
@@ -31,6 +31,10 @@ def generate_launch_description():
 
     pkg = 'vehicle_webots'
     package_dir = get_package_share_directory(pkg)
+
+    set_extra_project_path = SetEnvironmentVariable(
+        'WEBOTS_EXTRA_PROJECT_PATH', package_dir
+    )
 
     robot_description_path = PathJoinSubstitution([
         FindPackageShare(pkg), 'config', 'tesla.urdf'
@@ -149,6 +153,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        set_extra_project_path,
         declare_training_mode,
         declare_use_ground_truth,
         webots,
