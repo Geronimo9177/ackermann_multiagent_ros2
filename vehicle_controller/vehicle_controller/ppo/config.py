@@ -45,7 +45,7 @@ CONFIG = {
     # ── Entropy schedule ──────────────────────────────────────────
     "beta_schedule": {
         "initial": 0.001,
-        "final":   0.0001,
+        "final":   0.0005,
         "max_decay_steps": 1_000,
         "power": 1.0,
     },
@@ -63,7 +63,7 @@ CONFIG = {
     "cnn_channels": [32, 64, 64],  # conv layer output channels
 
     # ── Recurrence (flip use_recurrence to True to enable LSTM) ──
-    "use_recurrence": False,
+    "use_recurrence": True,
     "recurrence": {
         "layer_type": "lstm",       # "gru" or "lstm"
         "hidden_state_size": 256,
@@ -85,7 +85,7 @@ CONFIG = {
         "deadband_pitch_deg":  4.0,
         "deadband_roll_deg": 6.0,
 
-        "w_vz": 10.0,
+        "w_vz": 30.0,
 
         "w_res_v":     0.005,
         "w_res_steer": 0.00,

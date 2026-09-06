@@ -29,7 +29,7 @@ from cv_bridge import CvBridge
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32, Float64MultiArray, Bool
+from std_msgs.msg import Int32, Float64MultiArray, Bool, String
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TwistStamped
@@ -110,6 +110,7 @@ class PPOAgentNode(Node):
         self._img_msg:   Image       = None
         self._odom_msg:  Odometry    = None
         self._mpc_cmd:   TwistStamped = None
+        self._trajectory_id = ''
         self._lock       = threading.Lock()
 
         self.bridge = CvBridge()
@@ -164,6 +165,9 @@ class PPOAgentNode(Node):
         
         self.create_subscription(Int32,       '/rl/result',
                                  self._result_cb,  1)
+
+        self.create_subscription(String,      '/rl/trajectory_id',
+                     self._trajectory_id_cb, 1)
         
         self.create_subscription(Float64MultiArray, '/mpc/debug',
                                 self._mpc_debug_cb, 10)
@@ -192,6 +196,10 @@ class PPOAgentNode(Node):
     def _odom_cb(self, msg: Odometry):
         with self._lock:
             self._odom_msg = msg
+
+    def _trajectory_id_cb(self, msg: String):
+        with self._lock:
+            self._trajectory_id = msg.data
     
     def _mpc_debug_cb(self, msg: Float64MultiArray):
         if len(msg.data) < 11:
@@ -250,7 +258,7 @@ class PPOAgentNode(Node):
         r_slew  = -w['w_dv']         * (dv_action ** 2) - w['w_dsteer'] * (dsteer_action ** 2)
         r_rates = -w['w_pitch_rate'] * pw_gated         - w['w_roll_rate'] * rw_gated
         r_prog  =  w['w_progress']   * (dp * 100)
-        r_vz    = -w['w_vz']         * abs(v_z)
+        r_vz    = -w['w_vz']         * (v_z**2)
 
         with self._lock:
             self._e_lat, self._e_lon = e_lat, e_lon
@@ -418,6 +426,11 @@ class PPOAgentNode(Node):
             ]
             self.ep_met_pub.publish(ep_msg)
 
+            with self._lock:
+                trajectory_id = self._trajectory_id
+            self.get_logger().info(
+                f'[Ep {self.episode_count}] route={trajectory_id or "unknown"}')
+
             self.writer.add_scalar('episode_raw/reward', self._ep_reward, self._control_step)
             self.writer.add_scalar('episode_raw/length', self._ep_length, self._control_step)
 
@@ -547,7 +560,7 @@ class PPOAgentNode(Node):
             for mb in gen:
                 all_stats.append(self._train_mini_batch(mb, lr, clip, beta))
 
-        stats = np.mean(all_stats, axis=0)  # [pi_loss, v_loss, loss, entropy]
+        stats = np.mean(all_stats, axis=0)  # [pi_loss, v_loss, loss, entropy, approx_kl, mean_log_ratio]
         self.update_count += 1
 
         # Logging
@@ -556,12 +569,15 @@ class PPOAgentNode(Node):
         self.writer.add_scalar('losses/value_loss',  stats[1], total_steps)
         self.writer.add_scalar('losses/loss',        stats[2], total_steps)
         self.writer.add_scalar('losses/entropy',     stats[3], total_steps)
+        self.writer.add_scalar('training/approx_kl', stats[4], total_steps)
+        self.writer.add_scalar('training/mean_log_ratio', stats[5], total_steps)
         self.writer.add_scalar('training/lr', lr, total_steps)
 
         elapsed = time.perf_counter() - t0
         self.get_logger().info(
             f'[Update {step} | Step {total_steps}] loss={stats[2]:.4f} pi={stats[0]:.4f} '
             f'v={stats[1]:.4f} H={stats[3]:.4f} '
+            f'KL={stats[4]:.6f} log_ratio={stats[5]:.6f} '
             f'lr={lr:.2e} t={elapsed*1000:.0f}ms'
         )
 
@@ -574,7 +590,9 @@ class PPOAgentNode(Node):
             float(stats[3]),            # Entropy
             float(lr),                  # Learning Rate
             float(elapsed * 1000.0),    # Time ms
-            float(self.episode_count)   # Episode
+            float(self.episode_count),  # Episode
+            float(stats[4]),            # Approximate sampled KL
+            float(stats[5])             # Mean log(pi_new / pi_old)
         ]
         self.train_met_pub.publish(train_msg)
 
@@ -614,7 +632,8 @@ class PPOAgentNode(Node):
         adv_exp = adv_norm.unsqueeze(-1).expand_as(log_probs)
 
         old_lp = mb['log_probs']   # already masked on recurrent path
-        ratio  = torch.exp(log_probs - old_lp)
+        log_ratio = log_probs - old_lp
+        ratio  = torch.exp(log_ratio)
         surr1  = ratio * adv_exp
         surr2  = torch.clamp(ratio, 1 - clip, 1 + clip) * adv_exp
         pi_loss = -torch.min(surr1, surr2).mean()
@@ -636,7 +655,11 @@ class PPOAgentNode(Node):
                                        self.config['max_grad_norm'])
         self.optimizer.step()
 
-        return [pi_loss.item(), v_loss.item(), loss.item(), entropy.item()]
+        approx_kl = ((ratio - 1.0) - log_ratio).sum(dim=-1).mean()
+        mean_log_ratio = log_ratio.sum(dim=-1).mean()
+
+        return [pi_loss.item(), v_loss.item(), loss.item(), entropy.item(),
+            approx_kl.item(), mean_log_ratio.item()]
 
     # ═══════════════════════════════════════════════════════════════
     # Checkpoint helpers

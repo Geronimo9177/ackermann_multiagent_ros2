@@ -3,7 +3,7 @@ from tf_transformations import euler_from_quaternion
 from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, Bool, Int32
+from std_msgs.msg import Float64MultiArray, Bool, Int32, String
 from std_srvs.srv import Trigger
 from nav_msgs.msg import Odometry
 import subprocess
@@ -57,6 +57,7 @@ class RLMaster(Node):
         self.start_pub  = self.create_publisher(Bool,  '/sim/start',  1)
         self.reset_pub  = self.create_publisher(Bool,  '/sim/reset',  1)
         self.result_pub = self.create_publisher(Int32, '/rl/result', 1)
+        self.trajectory_id_pub = self.create_publisher(String, '/rl/trajectory_id', 1)
         self.speedbump_client = self.create_client(
             Trigger, '/speedbump_control/reset_episode')
 
@@ -184,6 +185,10 @@ class RLMaster(Node):
 
         self._episode_count  += 1
         self._topp_ready      = False
+
+        trajectory_msg = String()
+        trajectory_msg.data = traj_file
+        self.trajectory_id_pub.publish(trajectory_msg)
 
         self._progress_history.clear()
 

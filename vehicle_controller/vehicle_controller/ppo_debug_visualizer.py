@@ -8,7 +8,7 @@ import os
 import numpy as np
 from collections import deque
 from datetime import datetime
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, String
 
 import matplotlib.pyplot as plt
 
@@ -32,6 +32,7 @@ class PPODebugVisualizer(Node):
         self.ep_x      = deque(maxlen=self.history_size)
         self.ep_reward = deque(maxlen=self.history_size)
         self.ep_length = deque(maxlen=self.history_size)
+        self._trajectory_id = ''
 
         # -- Training Queues --
         self.up_x        = deque(maxlen=self.history_size)
@@ -78,13 +79,13 @@ class PPODebugVisualizer(Node):
 
         # Escribir encabezados
         self._metrics_writer.writerow([
-           'total_env_steps', 'policy_loss', 'value_loss', 'total_loss', 'entropy', 'lr', 'update_ms', 'current_episode'
+              'total_env_steps', 'policy_loss', 'value_loss', 'total_loss', 'entropy', 'lr', 'update_ms', 'current_episode', 'approx_kl', 'mean_log_ratio'
         ])
         self._rewards_writer.writerow([
             'step', 'total', 'lat', 'lon', 'yaw', 'v', 'slew', 'rates', 'vz', 'res', 'progress', 'term'
         ])
         self._ep_met_writer.writerow([
-            'episode', 'raw_reward', 'raw_length_steps', 'at_update_step', 'total_env_steps'
+            'episode', 'trajectory_id', 'raw_reward', 'raw_length_steps', 'at_update_step', 'total_env_steps'
         ])
 
         # Flush inmediato para que el encabezado quede escrito
@@ -100,6 +101,7 @@ class PPODebugVisualizer(Node):
         self.create_subscription(Float64MultiArray, '/ppo/episode_metrics',    self.ep_met_cb, 10)
         self.create_subscription(Float64MultiArray, '/ppo/train_metrics',  self.train_met_cb, 10)
         self.create_subscription(Float64MultiArray, '/ppo/reward_terms',   self.reward_cb, 10)
+        self.create_subscription(String, '/rl/trajectory_id', self.trajectory_id_cb, 1)
 
         self.create_timer(0.1, self.update_plot)
 
@@ -190,6 +192,9 @@ class PPODebugVisualizer(Node):
     # CALLBACKS
     # ====================================================================
 
+    def trajectory_id_cb(self, msg: String):
+        self._trajectory_id = msg.data
+
     def ep_met_cb(self, msg: Float64MultiArray):
         if len(msg.data) < 5: return
 
@@ -203,7 +208,9 @@ class PPODebugVisualizer(Node):
         self.ep_reward.append(raw_reward)
         self.ep_length.append(raw_length)
 
-        self._ep_met_writer.writerow([episode_num, raw_reward, raw_length, at_update, total_steps])
+        self._ep_met_writer.writerow([
+            episode_num, self._trajectory_id, raw_reward, raw_length, at_update, total_steps
+        ])
         self._ep_met_file.flush()
 
 
@@ -218,7 +225,12 @@ class PPODebugVisualizer(Node):
         self.lr.append(msg.data[5])
         self.update_ms.append(msg.data[6])
 
-        self._metrics_writer.writerow([step, msg.data[1], msg.data[2], msg.data[3], msg.data[4], msg.data[5], msg.data[6], msg.data[7]])
+        approx_kl = msg.data[8] if len(msg.data) > 8 else ''
+        mean_log_ratio = msg.data[9] if len(msg.data) > 9 else ''
+        self._metrics_writer.writerow([
+            step, msg.data[1], msg.data[2], msg.data[3], msg.data[4], msg.data[5],
+            msg.data[6], msg.data[7], approx_kl, mean_log_ratio
+        ])
         self._metrics_file.flush()
 
     def reward_cb(self, msg: Float64MultiArray):
