@@ -89,6 +89,7 @@ class PPOAgentNode(Node):
         hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
         self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) \
                               else hxs
+        self._prev_recurrent_cell = None
 
         # ── Buffer ────────────────────────────────────────────────
         self.buffer  = Buffer(self.config, self.device)
@@ -142,7 +143,7 @@ class PPOAgentNode(Node):
 
         # ── Previous action for the buffer ────────────────────────
         self._prev_action   = torch.zeros(self.config['action_size'])
-        self._prev_log_prob = torch.zeros(self.config['action_size'])
+        self._prev_log_prob = torch.zeros(1)
         self._prev_value    = torch.zeros(1)
         self._prev_img      = None
         self._prev_vec      = None
@@ -311,6 +312,7 @@ class PPOAgentNode(Node):
         """Reset recurrent state and episode tracking."""
         hxs, cxs = self.model.init_recurrent_cell_states(1, self.device)
         self.recurrent_cell = (hxs, cxs) if (self.use_rec and cxs is not None) else hxs
+        self._prev_recurrent_cell = None
         self._have_prev = False
         self._ep_reward = 0.0
         self._ep_length = 0
@@ -364,6 +366,16 @@ class PPOAgentNode(Node):
             img_d = img_t.unsqueeze(0).to(self.device)
             vec_d = vec_t.unsqueeze(0).to(self.device)
 
+            # Keep the state that consumed this observation. The forward pass
+            # below replaces recurrent_cell with the posterior state.
+            if self.use_rec:
+                if isinstance(self.recurrent_cell, tuple):
+                    self._prev_recurrent_cell = tuple(
+                        state.detach().clone() for state in self.recurrent_cell
+                    )
+                elif self.recurrent_cell is not None:
+                    self._prev_recurrent_cell = self.recurrent_cell.detach().clone()
+
             dist, value, self.recurrent_cell = self.model(
                 img_d, vec_d, self.recurrent_cell
             )
@@ -371,9 +383,9 @@ class PPOAgentNode(Node):
             if self.training_mode:
                 action = dist.sample()
             else:
-                action = dist.mean             # deterministic at test time
+                action = torch.tanh(dist.base_dist.mean)  # deterministic at test time
 
-            log_prob = dist.log_prob(action)  # (1, action_size)
+            log_prob = dist.log_prob(action).sum(dim=-1)  # (1,)
 
         # ── Publish /cmd_vel (MPC base + PPO residual) ─────────
         self._publish_cmd(v_cmd_mpc, steer_mpc, action.squeeze(0))
@@ -550,6 +562,8 @@ class PPOAgentNode(Node):
         lr    = _polynomial_decay(**cfg['learning_rate_schedule'], step=step)
         beta  = _polynomial_decay(**cfg['beta_schedule'],          step=step)
         clip  = _polynomial_decay(**cfg['clip_range_schedule'],    step=step)
+        target_kl = cfg.get('target_kl')
+        continue_training = True
 
         all_stats = []
         for _ in range(cfg['epochs']):
@@ -558,7 +572,16 @@ class PPOAgentNode(Node):
                    if self.use_rec
                    else self.buffer.mini_batch_generator())
             for mb in gen:
-                all_stats.append(self._train_mini_batch(mb, lr, clip, beta))
+                batch_stats = self._train_mini_batch(mb, lr, clip, beta, target_kl)
+                all_stats.append(batch_stats)
+                if batch_stats[6]:
+                    continue_training = False
+                    self.get_logger().warning(
+                        f'Early stopping PPO epoch: approx_kl={batch_stats[4]:.6f} '
+                        f'> 1.5 * target_kl={target_kl:.6f}')
+                    break
+            if not continue_training:
+                break
 
         stats = np.mean(all_stats, axis=0)  # [pi_loss, v_loss, loss, entropy, approx_kl, mean_log_ratio]
         self.update_count += 1
@@ -605,7 +628,7 @@ class PPOAgentNode(Node):
             rclpy.try_shutdown()
 
     def _train_mini_batch(self, mb: dict, lr: float, clip: float,
-                          beta: float) -> list:
+                          beta: float, target_kl: float | None) -> list:
         seq_len = mb.get('seq_length', 1)
         dist, value, _ = self.model(
             mb['imgs'], mb['vecs'],
@@ -617,8 +640,8 @@ class PPOAgentNode(Node):
         # Apply loss mask if present (recurrent path)
         mask = mb.get('loss_mask', None)
 
-        log_probs  = dist.log_prob(mb['actions'])    # (B, act_dim)
-        entropies  = dist.entropy()                  # (B, act_dim)
+        log_probs  = dist.log_prob(mb['actions']).sum(dim=-1)  # (B,)
+        entropies  = -log_probs                                # sampled estimate
 
         if mask is not None:
             value      = value[mask]
@@ -628,14 +651,11 @@ class PPOAgentNode(Node):
         adv = mb['advantages']
         adv_norm = (adv - adv.mean()) / (adv.std(correction=0) + 1e-8)
 
-        # Expand adv for multi-dim action
-        adv_exp = adv_norm.unsqueeze(-1).expand_as(log_probs)
-
         old_lp = mb['log_probs']   # already masked on recurrent path
         log_ratio = log_probs - old_lp
         ratio  = torch.exp(log_ratio)
-        surr1  = ratio * adv_exp
-        surr2  = torch.clamp(ratio, 1 - clip, 1 + clip) * adv_exp
+        surr1  = ratio * adv_norm
+        surr2  = torch.clamp(ratio, 1 - clip, 1 + clip) * adv_norm
         pi_loss = -torch.min(surr1, surr2).mean()
 
         ret        = mb['values'] + adv
@@ -647,19 +667,23 @@ class PPOAgentNode(Node):
         loss    = pi_loss + self.config['value_loss_coefficient'] * v_loss \
                   - beta * entropy
 
-        for pg in self.optimizer.param_groups:
-            pg['lr'] = lr
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(),
-                                       self.config['max_grad_norm'])
-        self.optimizer.step()
+        approx_kl = ((ratio - 1.0) - log_ratio).mean()
+        mean_log_ratio = log_ratio.mean()
+        stop_update = (target_kl is not None
+                       and approx_kl.item() > 1.5 * target_kl)
 
-        approx_kl = ((ratio - 1.0) - log_ratio).sum(dim=-1).mean()
-        mean_log_ratio = log_ratio.sum(dim=-1).mean()
+        # Check KL before changing the policy.
+        if not stop_update:
+            for pg in self.optimizer.param_groups:
+                pg['lr'] = lr
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                           self.config['max_grad_norm'])
+            self.optimizer.step()
 
         return [pi_loss.item(), v_loss.item(), loss.item(), entropy.item(),
-            approx_kl.item(), mean_log_ratio.item()]
+            approx_kl.item(), mean_log_ratio.item(), stop_update]
 
     # ═══════════════════════════════════════════════════════════════
     # Checkpoint helpers
@@ -694,12 +718,12 @@ class PPOAgentNode(Node):
 
     def _cell_arrays(self):
         """Return (hx, cx) numpy arrays for buffer storage."""
-        if not self.use_rec or self.recurrent_cell is None:
+        if not self.use_rec or self._prev_recurrent_cell is None:
             return None, None
-        if isinstance(self.recurrent_cell, tuple):
-            hx, cx = self.recurrent_cell
+        if isinstance(self._prev_recurrent_cell, tuple):
+            hx, cx = self._prev_recurrent_cell
             return hx.squeeze().cpu(), cx.squeeze().cpu()
-        return self.recurrent_cell.squeeze().cpu(), None
+        return self._prev_recurrent_cell.squeeze().cpu(), None
 
 
 # ─────────────────────────────────────────────────────────────────

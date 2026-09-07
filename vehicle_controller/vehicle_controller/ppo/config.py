@@ -31,6 +31,7 @@ CONFIG = {
     "worker_steps": 1024,          # steps collected before each update
     "value_loss_coefficient": 0.5,
     "max_grad_norm": 0.5,
+    "target_kl": 0.02,           # stop an update when approx KL > 1.5 * this
     "updates":      0,   # stop after N gradient updates (0 = disabled)
     "max_episodes": 200,   # stop after N episodes        (0 = disabled)
 

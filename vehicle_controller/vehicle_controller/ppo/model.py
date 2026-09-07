@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import Normal, TanhTransform, TransformedDistribution
 
 
 class ActorCriticModel(nn.Module):
@@ -135,7 +135,7 @@ class ActorCriticModel(nn.Module):
             sequence_length: used during BPTT; 1 during sampling
 
         Returns:
-            dist:   Normal distribution over residual actions
+            dist:   tanh-squashed Normal distribution over residual actions
             value:  (B,)
             recurrent_cell: updated hidden state (or None)
         """
@@ -167,11 +167,16 @@ class ActorCriticModel(nn.Module):
 
         # Policy
         h_pi  = F.mish(self.fc_policy(h))
-        mean  = torch.tanh(self.mean_head(h_pi))          # raw in [-1,1]
+        mean = self.mean_head(h_pi)
         log_std = self.log_std_head(h_pi).clamp(self.LOG_STD_MIN, self.LOG_STD_MAX)
         std   = log_std.exp()
 
-        dist   = Normal(mean, std)
+        # Squashing the sampled action, rather than only the mean, keeps every
+        # action in the declared [-1, 1] range and makes log_prob consistent.
+        dist = TransformedDistribution(
+            Normal(mean, std),
+            [TanhTransform(cache_size=1)],
+        )
 
         # Value
         h_v   = F.mish(self.fc_value(h))

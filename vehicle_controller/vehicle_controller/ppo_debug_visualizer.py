@@ -40,7 +40,7 @@ class PPODebugVisualizer(Node):
         self.value_loss  = deque(maxlen=self.history_size)
         self.total_loss  = deque(maxlen=self.history_size)
         self.entropy     = deque(maxlen=self.history_size)
-        self.lr          = deque(maxlen=self.history_size)
+        self.approx_kl   = deque(maxlen=self.history_size)
         self.update_ms   = deque(maxlen=self.history_size)
 
         # -- Reward Components Queues --
@@ -117,7 +117,7 @@ class PPODebugVisualizer(Node):
             'value_loss':  self.axes_m[3].plot([], [], label='Value Loss', color='darkorange')[0],
             'total_loss':  self.axes_m[4].plot([], [], label='Total Loss', color='black')[0],
             'entropy':     self.axes_m[5].plot([], [], label='Entropy',    color='purple')[0],
-            'lr':          self.axes_m[6].plot([], [], label='LR',         color='forestgreen')[0],
+            'approx_kl':   self.axes_m[6].plot([], [], label='Approx. KL', color='forestgreen')[0],
             'update_ms':   self.axes_m[7].plot([], [], label='Time (ms)',  color='gray')[0],
         }
 
@@ -127,11 +127,8 @@ class PPODebugVisualizer(Node):
         self.axes_m[3].set_title('Value Loss')
         self.axes_m[4].set_title('Total Loss')
         self.axes_m[5].set_title('Entropy')
-        self.axes_m[6].set_title('Learning Rate')
+        self.axes_m[6].set_title('Approximate KL Divergence')
         self.axes_m[7].set_title('Update Time')
-
-        self.axes_m[6].set_yscale('log')
-        self.axes_m[6].set_ylim(1e-6, 1e-3)
 
         self.axes_m[0].set_xlabel('Episode')
         self.axes_m[1].set_xlabel('Episode')
@@ -222,10 +219,10 @@ class PPODebugVisualizer(Node):
         self.value_loss.append(msg.data[2])
         self.total_loss.append(msg.data[3])
         self.entropy.append(msg.data[4])
-        self.lr.append(msg.data[5])
+        approx_kl = msg.data[8] if len(msg.data) > 8 else np.nan
+        self.approx_kl.append(approx_kl)
         self.update_ms.append(msg.data[6])
 
-        approx_kl = msg.data[8] if len(msg.data) > 8 else ''
         mean_log_ratio = msg.data[9] if len(msg.data) > 9 else ''
         self._metrics_writer.writerow([
             step, msg.data[1], msg.data[2], msg.data[3], msg.data[4], msg.data[5],
@@ -285,7 +282,7 @@ class PPODebugVisualizer(Node):
             self.lines_m['value_loss'].set_data(ux,  np.array(self.value_loss))
             self.lines_m['total_loss'].set_data(ux,  np.array(self.total_loss))
             self.lines_m['entropy'].set_data(ux,     np.array(self.entropy))
-            self.lines_m['lr'].set_data(ux,          np.array(self.lr))
+            self.lines_m['approx_kl'].set_data(ux,  np.array(self.approx_kl))
             self.lines_m['update_ms'].set_data(ux,   np.array(self.update_ms))
             
             for i in range(2, 8):

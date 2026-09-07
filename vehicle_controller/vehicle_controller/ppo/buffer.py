@@ -31,7 +31,7 @@ class Buffer:
         self.imgs = torch.zeros((T, img_ch, img_h, img_w),  dtype=torch.float32)
         self.vecs     = torch.zeros((T, vec_dim),           dtype=torch.float32)
         self.actions  = torch.zeros((T, act_dim),           dtype=torch.float32)
-        self.log_probs = torch.zeros((T, act_dim),          dtype=torch.float32)
+        self.log_probs = torch.zeros(T,                      dtype=torch.float32)
         self.values   = torch.zeros(T,                      dtype=torch.float32)
         self.rewards  = torch.zeros(T,                      dtype=torch.float32)
         self.dones    = torch.zeros(T,                      dtype=torch.bool)
@@ -159,7 +159,7 @@ class Buffer:
             imgs_b = _stack(imgs_list).reshape(-1, *self.imgs.shape[1:])
             vecs_b = _stack(vecs_list).reshape(-1, self.vecs.shape[-1])
             act_b  = _stack(act_list).reshape(-1, self.actions.shape[-1])
-            lp_b   = _stack(lp_list).reshape(-1, self.log_probs.shape[-1])
+            lp_b   = _stack(lp_list).reshape(-1)
             mask_b = _stack(loss_masks).reshape(-1)
             hx_b   = torch.stack(hx_list, 0).squeeze(1).unsqueeze(0).to(self.device)
             cx_b   = torch.stack(cx_list, 0).squeeze(1).unsqueeze(0).to(self.device) \
