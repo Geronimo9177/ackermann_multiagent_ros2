@@ -26,7 +26,7 @@ CONFIG = {
     # ── PPO hyperparameters ───────────────────────────────────────
     "gamma":  0.99,
     "lamda":  0.95,
-    "epochs": 8,
+    "epochs": 4,
     "n_mini_batch": 8,
     "worker_steps": 1024,          # steps collected before each update
     "value_loss_coefficient": 0.5,

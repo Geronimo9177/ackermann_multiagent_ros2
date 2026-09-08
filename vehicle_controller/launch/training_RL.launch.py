@@ -1,18 +1,24 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 CHECKPOINT_DIR = os.path.join(os.path.expanduser('~'), 'ppo_checkpoints')
-RUN_ID         = 'speedbump_v1'
+RUN_ID_BASE    = 'speedbump'
 
 def generate_launch_description():
     use_ground_truth             = LaunchConfiguration('use_ground_truth')
     training_mode                = LaunchConfiguration('training_mode')
+    seed                         = LaunchConfiguration('seed')
+    run_id                      = PythonExpression([
+        "'", RUN_ID_BASE, "_seed_' + str(", seed, ")"
+    ])
 
     declare_use_ground_truth = DeclareLaunchArgument(
         'use_ground_truth',
@@ -22,6 +28,11 @@ def generate_launch_description():
         'training_mode',
         default_value='true',
         description='true=train, false=evaluate last checkpoint',
+    )
+    declare_seed = DeclareLaunchArgument(
+        'seed',
+        default_value='0',
+        description='Random seed shared by PPO, trajectory selection and Webots',
     )
 
     webots_pkg       = get_package_share_directory('vehicle_webots')
@@ -33,7 +44,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'training_mode':    training_mode,
-            'use_ground_truth': use_ground_truth
+            'use_ground_truth': use_ground_truth,
+            'seed':             seed,
         }.items()
     )
 
@@ -56,6 +68,7 @@ def generate_launch_description():
         parameters=[{
             'training_mode':    training_mode,
             'use_ground_truth': use_ground_truth,
+            'seed':             seed,
         }]
     )
 
@@ -67,8 +80,9 @@ def generate_launch_description():
         parameters=[{
             'training_mode':    training_mode,
             'use_ground_truth': use_ground_truth,
-            'run_id':           RUN_ID,
+            'run_id':           run_id,
             'checkpoint_dir':   CHECKPOINT_DIR,
+            'seed':             seed,
         }]
     )
 
@@ -80,16 +94,25 @@ def generate_launch_description():
         condition=IfCondition(training_mode),
         parameters=[{
             'checkpoint_dir': CHECKPOINT_DIR,
-            'run_id':         RUN_ID,
+            'run_id':         run_id,
         }]
+    )
+
+    shutdown_on_ppo_exit = RegisterEventHandler(
+        OnProcessExit(
+            target_action=ppo_node,
+            on_exit=[EmitEvent(event=Shutdown())],
+        )
     )
 
     return LaunchDescription([
         declare_use_ground_truth,
         declare_training_mode,
+        declare_seed,
         webots_launch,
         controller_launch,
         rl_master_node,
         ppo_node,
         ppo_debug_visualizer_node,
+        shutdown_on_ppo_exit,
     ])

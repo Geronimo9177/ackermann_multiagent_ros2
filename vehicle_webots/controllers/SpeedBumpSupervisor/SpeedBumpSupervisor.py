@@ -9,6 +9,7 @@ import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from controller import Supervisor
+import os
 import random
 
 
@@ -24,6 +25,8 @@ class SpeedBumpSupervisor(Node):
         # Initialize the Webots supervisor
         self.supervisor = Supervisor()
         self.timestep = int(self.supervisor.getBasicTimeStep())
+        self.seed = int(os.environ.get('WEBOTS_SEED', '0'))
+        random.seed(self.seed)
         
         # Store the translation fields of the speed bumps.
         self.speedbumps = {}

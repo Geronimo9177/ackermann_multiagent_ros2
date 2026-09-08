@@ -17,6 +17,7 @@ Timing contract (training mode):
 
 import os
 import math
+import random
 import time
 import threading
 from collections import deque
@@ -64,11 +65,19 @@ class PPOAgentNode(Node):
         self.declare_parameter('use_ground_truth', False)
         self.declare_parameter('run_id',           'ppo_run')
         self.declare_parameter('checkpoint_dir',   CONFIG['checkpoint_dir'])
+        self.declare_parameter('seed',              0)
 
         self.training_mode    = self.get_parameter('training_mode').value
         self.use_ground_truth = self.get_parameter('use_ground_truth').value
         self.run_id           = self.get_parameter('run_id').value
         self.ckpt_dir         = self.get_parameter('checkpoint_dir').value
+        self.seed             = int(self.get_parameter('seed').value)
+
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.seed)
 
         self.config = CONFIG
         self.cfg_rec = CONFIG['recurrence']

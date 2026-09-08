@@ -17,6 +17,7 @@ def generate_launch_description():
 
     training_mode = LaunchConfiguration('training_mode')
     use_ground_truth = LaunchConfiguration('use_ground_truth')
+    seed = LaunchConfiguration('seed')
 
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
@@ -28,12 +29,20 @@ def generate_launch_description():
         'use_ground_truth', default_value='false',
         description='Si es true, no lanza los EKF ni filtros'
     )
+    declare_seed = DeclareLaunchArgument(
+        'seed', default_value='0',
+        description='Random seed used by Webots controllers'
+    )
 
     pkg = 'vehicle_webots'
     package_dir = get_package_share_directory(pkg)
 
     set_extra_project_path = SetEnvironmentVariable(
         'WEBOTS_EXTRA_PROJECT_PATH', package_dir
+    )
+
+    set_webots_seed = SetEnvironmentVariable(
+        'WEBOTS_SEED', seed
     )
 
     robot_description_path = PathJoinSubstitution([
@@ -154,8 +163,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         set_extra_project_path,
+        set_webots_seed,
         declare_training_mode,
         declare_use_ground_truth,
+        declare_seed,
         webots,
         webots._supervisor,
         vehicle_driver,

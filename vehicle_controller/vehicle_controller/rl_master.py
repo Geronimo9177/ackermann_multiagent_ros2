@@ -33,9 +33,12 @@ class RLMaster(Node):
 
         self.declare_parameter('training_mode', True)
         self.declare_parameter('use_ground_truth', False)
+        self.declare_parameter('seed', 0)
 
         self.training_mode = self.get_parameter('training_mode').value
         self.use_ground_truth = self.get_parameter('use_ground_truth').value
+        self.seed = int(self.get_parameter('seed').value)
+        random.seed(self.seed)
         self.trajectories_subdir = 'train' if self.training_mode else 'test'
 
         self._traj_process   = None 
@@ -261,7 +264,8 @@ class RLMaster(Node):
 
     # ── Helpers ──────────────────────────────────────────────────
     def _pick_random_trajectory(self):
-        files = glob.glob(os.path.join(self.trajectories_dir, self.trajectories_subdir, '*.csv'))
+        files = sorted(glob.glob(os.path.join(
+            self.trajectories_dir, self.trajectories_subdir, '*.csv')))
         if not files:
             return None
         return os.path.join(self.trajectories_subdir, os.path.basename(random.choice(files)))
