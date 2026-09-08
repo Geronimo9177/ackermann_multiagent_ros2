@@ -53,30 +53,23 @@ class AckermannMPC(Node):
         super().__init__('ackermann_mpc')
 
         # MPC parameters
-        self.declare_parameter('use_ground_truth', False)
         self.declare_parameter('dt', 0.05)
         self.declare_parameter('N', 20)
         self.declare_parameter('wheelbase', 2.55)
         self.declare_parameter('max_steer', 0.6458)
         self.declare_parameter('max_speed', 8.0)
 
-        self.use_ground_truth = self.get_parameter('use_ground_truth').value
         self.dt               = self.get_parameter('dt').value
         self.N                = self.get_parameter('N').value
         self.L                = self.get_parameter('wheelbase').value
         self.max_steer        = self.get_parameter('max_steer').value
         self.max_speed        = self.get_parameter('max_speed').value
 
-        # Internal state (from the local EKF)
+        # Internal state
         self.state         = np.zeros(3)
         self.prev_u        = np.zeros(2)
         self.last_solution = None
         self.yaw_cont      = None
-
-        # Drift offset: difference between fused and local in the odom frame
-        # Applied to the path so the MPC sees corrected waypoints
-        # without  modifying the MPC state (self.state)
-        self.drift_offset = np.zeros(2)   # [dx, dy]
 
         # Arrays from the MultiArray message (TOPP node)
         self.xy_arr  = None   # (N, 2) (map frame)
@@ -84,11 +77,7 @@ class AckermannMPC(Node):
         self.v_arr   = None   # (N,)
         self.s_arr   = None   # (N,)
 
-        # Path corrected by drift (odom frame)
-        self.xy_arr_odom = None
-
         self.odom_received  = False
-        self.fused_received = False
         self.path_received  = False
 
         # Path tracking
@@ -102,16 +91,8 @@ class AckermannMPC(Node):
         self.route_completed = False
 
         # ── Subscribers ──────────────────────────────────────────────
-        if self.use_ground_truth:
-            self.fused_received = True
-            self.create_subscription(Odometry, '/ground_truth_odom',
+        self.create_subscription(Odometry, '/ground_truth_odom',
                                 self.odom_cb, 10)
-        else:
-            self.create_subscription(Odometry, '/odometry/local',
-                                self.odom_cb, 10)
-                    
-            self.create_subscription(Odometry, '/odometry/fused',
-                                self.fused_cb, 10)
 
         self.create_subscription(Float64MultiArray, '/trajectory_topp',
                                 self.trajectory_cb, 10)
@@ -221,7 +202,6 @@ class AckermannMPC(Node):
     # ── Callbacks ─────────────────────────────────────────────────────
 
     def odom_cb(self, msg):
-        """Local EKF state used by the MPC."""
         p           = msg.pose.pose.position
         yaw_wrapped = _yaw_from_pose(msg.pose)
 
@@ -234,35 +214,8 @@ class AckermannMPC(Node):
         self.state = np.array([p.x, p.y, self.yaw_cont])
 
         if not self.odom_received:
-            self.get_logger().info('First odometry/local received!')
+            self.get_logger().info('First odometry received!')
             self.odom_received = True
-
-    def fused_cb(self, msg):
-        """OdometryFusion output updates drift_offset only. """
-        if not self.odom_received:
-            return
-
-        fx = msg.pose.pose.position.x
-        fy = msg.pose.pose.position.y
-
-        # Offset between the fused position and the current local position
-        new_offset = np.array([fx - self.state[0],
-                                fy - self.state[1]])
-
-        # Smooth the offset to avoid abrupt path jumps
-        alpha = 0.1
-        self.drift_offset = (1.0 - alpha) * self.drift_offset + alpha * new_offset
-
-        # Recompute the path in the odom frame with the new offset
-        if self.xy_arr is not None:
-            self._reproject_path()
-
-        if not self.fused_received:
-            self.get_logger().info(
-                f'First odometry/fused received! '
-                f'offset=[{self.drift_offset[0]:.3f}, {self.drift_offset[1]:.3f}]'
-            )
-            self.fused_received = True
 
     def trajectory_cb(self, msg: Float64MultiArray):
         """Receive the path in the map frame and project it to odom frame."""
@@ -270,7 +223,7 @@ class AckermannMPC(Node):
         fields = msg.layout.dim[1].size
 
         data = np.array(msg.data).reshape(n, fields)
-        self.xy_arr  = data[:, 0:2]   # map frame
+        self.xy_arr  = data[:, 0:2]
         self.yaw_arr = data[:, 2]
         self.v_arr   = data[:, 3]
         self.s_arr   = data[:, 4]
@@ -280,9 +233,6 @@ class AckermannMPC(Node):
         self.route_completed = False
         self.last_solution   = None
 
-        # Project the path to the odom frame using the current drift_offset
-        self._reproject_path()
-
         if not self.path_received:
             self.get_logger().info(
                 f'Trajectory TOPP: {n} pts | '
@@ -290,25 +240,12 @@ class AckermannMPC(Node):
             )
             self.path_received = True
 
-    def _reproject_path(self):
-        """Transform the path from map frame to odom frame by subtracting drift_offset.
-        
-        frame_odom = frame_map - drift_offset
-        
-        drift_offset is the accumulated difference between the fused position
-        (which includes GPS correction) and the local position (pure odom/IMU).
-        """
-        if self.xy_arr is None:
-            return
-        # The path in odom is the map path minus the drift offset
-        self.xy_arr_odom = self.xy_arr - self.drift_offset[np.newaxis, :]
-
     # ── Geometry helpers ──────────────────────────────────────────────
 
     def get_segment(self, i, n):
         idx_a = min(i, n - 2)
         # Use the path projected into odom
-        return self.xy_arr_odom[idx_a], self.xy_arr_odom[idx_a + 1]
+        return self.xy_arr[idx_a], self.xy_arr[idx_a + 1]
 
     def get_v_ref_at(self, idx, t):
         idx_a = min(idx, len(self.v_arr) - 2)
@@ -327,7 +264,7 @@ class AckermannMPC(Node):
             self.current_t   = 0.0
             return
 
-        n = len(self.xy_arr_odom)
+        n = len(self.xy_arr)
         if self.current_idx >= n - 2:
             return
 
@@ -371,9 +308,9 @@ class AckermannMPC(Node):
         return np.concatenate([states_shifted.flatten(), inputs_shifted.flatten()])
 
     def should_complete_route(self):
-        if self.xy_arr_odom is None or self.current_idx is None:
+        if self.xy_arr is None or self.current_idx is None:
             return False
-        goal          = self.xy_arr_odom[-1]
+        goal          = self.xy_arr[-1]
         goal_distance = float(np.hypot(self.state[0] - goal[0],
                                        self.state[1] - goal[1]))
         return goal_distance <= self.goal_tolerance
@@ -406,19 +343,17 @@ class AckermannMPC(Node):
             float(x_ref),   float(y_ref),   float(yaw_ref),
             float(v_cmd),   float(v_ref),   float(steer),
             float(track_progress),
-            float(solve_ms),
-            float(self.drift_offset[0]),   # extra: x offset for debug
-            float(self.drift_offset[1]),   # extra: y offset for debug
+            float(solve_ms)
         ]
         self.debug_pub.publish(msg)
 
     # ── Control loop ──────────────────────────────────────────────────
 
     def control_loop(self):
-        if self.xy_arr_odom is None or not self.odom_received or self.route_completed:
+        if self.xy_arr is None or not self.odom_received or self.route_completed:
             return
 
-        n = len(self.xy_arr_odom)
+        n = len(self.xy_arr)
         if n < 2:
             self.get_logger().warn('Trajectory too short!', throttle_duration_sec=2.0)
             self.publish_cmd(np.zeros(2))
@@ -515,8 +450,7 @@ class AckermannMPC(Node):
                 f'e_lat: {e_lat:.3f}m | e_lon: {e_lon:.3f}m | '
                 f'e_yaw: {np.degrees(e_yaw):.1f}° | '
                 f'v: {u[0]:.2f}/{v_ref_now:.2f} m/s | '
-                f'δ: {np.degrees(u[1]):.1f}° | '
-                f'drift: [{self.drift_offset[0]:.3f}, {self.drift_offset[1]:.3f}]',
+                f'δ: {np.degrees(u[1]):.1f}° | ',
                 throttle_duration_sec=0.5
             )
 

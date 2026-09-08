@@ -13,17 +13,12 @@ CHECKPOINT_DIR = os.path.join(os.path.expanduser('~'), 'ppo_checkpoints')
 RUN_ID_BASE    = 'speedbump'
 
 def generate_launch_description():
-    use_ground_truth             = LaunchConfiguration('use_ground_truth')
     training_mode                = LaunchConfiguration('training_mode')
     seed                         = LaunchConfiguration('seed')
     run_id                      = PythonExpression([
         "'", RUN_ID_BASE, "_seed_' + str(", seed, ")"
     ])
 
-    declare_use_ground_truth = DeclareLaunchArgument(
-        'use_ground_truth',
-        default_value='true',
-    )
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
         default_value='true',
@@ -44,7 +39,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'training_mode':    training_mode,
-            'use_ground_truth': use_ground_truth,
             'seed':             seed,
         }.items()
     )
@@ -55,8 +49,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'run_debug_visualizer': 'false',
-            'vehicle':              'tesla',
-            'use_ground_truth':      use_ground_truth
         }.items()
     )
 
@@ -67,7 +59,6 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'training_mode':    training_mode,
-            'use_ground_truth': use_ground_truth,
             'seed':             seed,
         }]
     )
@@ -79,7 +70,6 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'training_mode':    training_mode,
-            'use_ground_truth': use_ground_truth,
             'run_id':           run_id,
             'checkpoint_dir':   CHECKPOINT_DIR,
             'seed':             seed,
@@ -106,7 +96,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        declare_use_ground_truth,
         declare_training_mode,
         declare_seed,
         webots_launch,
