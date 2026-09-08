@@ -16,7 +16,7 @@ class TrajectoryPublisher(Node):
 
     def __init__(self):
         super().__init__('trajectory_publisher')
-        self.declare_parameter('trajectory_file', 'baylands_nurbs_01.csv')
+        self.declare_parameter('trajectory_file', 'train/baylands_nurbs_01.csv')
 
         qos = QoSProfile(
             depth=1,

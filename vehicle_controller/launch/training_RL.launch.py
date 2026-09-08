@@ -8,13 +8,6 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
 
-    use_ground_truth = LaunchConfiguration('use_ground_truth')
-    
-    declare_use_ground_truth = DeclareLaunchArgument(
-        'use_ground_truth',
-        default_value='true', 
-    )
-
     # Rutas de los paquetes
     webots_pkg = get_package_share_directory('vehicle_webots')
     controller_pkg = get_package_share_directory('vehicle_controller')
@@ -25,7 +18,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'training_mode': 'true',
-            'use_ground_truth': use_ground_truth
         }.items()
     )
 
@@ -35,8 +27,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             'run_debug_visualizer': 'false',
-            'vehicle': 'tesla',
-            'use_ground_truth': use_ground_truth
         }.items()
     )
 
@@ -47,13 +37,11 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'training_mode': True,
-            'use_ground_truth': use_ground_truth,
             'use_sim_time': True}
             ]
     )
 
     return LaunchDescription([
-        declare_use_ground_truth,
         webots_launch,
         controller_launch,
         rl_master_node

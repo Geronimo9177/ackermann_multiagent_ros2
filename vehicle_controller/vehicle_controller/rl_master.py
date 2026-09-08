@@ -31,10 +31,8 @@ class RLMaster(Node):
         super().__init__('rl_master')
 
         self.declare_parameter('training_mode', True)
-        self.declare_parameter('use_ground_truth', False)
 
         self.training_mode = self.get_parameter('training_mode').value
-        self.use_ground_truth = self.get_parameter('use_ground_truth').value
         self.trajectories_subdir = 'train' if self.training_mode else 'test'
 
         # Only manage the trajectory process
@@ -65,14 +63,6 @@ class RLMaster(Node):
         # Subscribers
         self.topp_sub = self.create_subscription(
             Float64MultiArray, '/trajectory_topp', self._topp_cb, 1)
-        
-        if self.use_ground_truth:
-            self.main_odom_topic = '/ground_truth_odom'
-        else:
-            self.main_odom_topic = '/odometry/fused'
-
-        self.odom_sub = self.create_subscription(
-            Odometry, self.main_odom_topic, self._main_odom_cb, 10)
 
         self.success_sub = self.create_subscription(
             Bool, '/mpc/success', self._success_cb, 1)
@@ -90,6 +80,12 @@ class RLMaster(Node):
             self._end_episode(self.RESULT_SUCCESS)
 
     def _gt_cb(self, msg: Odometry):
+        if not self._odom_ready:
+                    self._odom_ready = True
+                    self.get_logger().info('Active - starting...')
+                    self._start_timer = self.create_timer(1.0, self._on_start_timer)
+                    return
+        
         """Ground-truth velocity used for crash detection."""
         if not self._episode_active:
             return
@@ -132,13 +128,6 @@ class RLMaster(Node):
             else:
                 self._low_speed_since = None
 
-    def _main_odom_cb(self, msg: Odometry):
-        if not self._odom_ready:
-            self._odom_ready = True
-            self.get_logger().info(f'{self.main_odom_topic} active - starting...')
-            self._start_timer = self.create_timer(1.0, self._on_start_timer)
-            return
-
     def _topp_cb(self, _msg):
         if self._episode_active or not self._episode_count:
             return 
@@ -148,18 +137,6 @@ class RLMaster(Node):
         self._topp_ready = True
         self.get_logger().info('TOPP ready - starting episode in 0.5 s...')
         self._traj_timer = self.create_timer(0.5, self._on_traj_timer)
-    
-    def _kill_madgwick(self):
-        """Kill the IMU filter process; ROS 2 will restart it automatically in a clean state."""
-        if self.use_ground_truth:
-            return
-        
-        try:
-            # pkill finds the process by executable name and forcefully terminates it
-            subprocess.run(['pkill', '-f', 'imu_filter_madgwick_node'], check=False)
-            self.get_logger().info('Filtro Madgwick aniquilado')
-        except Exception as e:
-            self.get_logger().error(f'Error while trying to kill Madgwick: {e}')
 
     # ── Startup timers ──────────────────────────────────────────
     def _on_start_timer(self):
@@ -254,10 +231,9 @@ class RLMaster(Node):
         msg_b = Bool()
         msg_b.data = True
         self.reset_pub.publish(msg_b)
-        self._kill_madgwick()
 
         self._odom_ready = False
-        self.get_logger().info(f'Waiting for {self.main_odom_topic} for the next episode...')
+        self.get_logger().info('Waiting for the next episode...')
 
     # ── Helpers ──────────────────────────────────────────────────
     def _pick_random_trajectory(self):
