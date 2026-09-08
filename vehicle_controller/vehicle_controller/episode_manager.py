@@ -13,7 +13,7 @@ import random
 import math
 
 
-class RLMaster(Node):
+class EpisodeManager(Node):
 
     # ── Episode termination conditions ──────────────────────────
     CRASH_SPEED_THRESHOLD  = 0.1   # m/s
@@ -28,7 +28,7 @@ class RLMaster(Node):
     RESULT_FALL     = 3
 
     def __init__(self):
-        super().__init__('rl_master')
+        super().__init__('episode_manager')
 
         self.declare_parameter('training_mode', True)
 
@@ -70,7 +70,7 @@ class RLMaster(Node):
         self.gt_sub = self.create_subscription(
             Odometry, '/ground_truth_odom', self._gt_cb, 10)
         
-        self.get_logger().info('RLMaster started')
+        self.get_logger().info('Episode manager started')
 
     # ── Callbacks ────────────────────────────────────────────────
     def _success_cb(self, _msg: Bool):
@@ -252,7 +252,7 @@ class RLMaster(Node):
 
 def main():
     rclpy.init()
-    node = RLMaster()
+    node = EpisodeManager()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -1,14 +1,18 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
 
-    # Rutas de los paquetes
+    training_mode = LaunchConfiguration('training_mode')
+
+    declare_training_mode = DeclareLaunchArgument(
+        'training_mode', default_value='true',
+        description='true = training; false = tiempo real')
     webots_pkg = get_package_share_directory('vehicle_webots')
     controller_pkg = get_package_share_directory('vehicle_controller')
 
@@ -17,7 +21,7 @@ def generate_launch_description():
             os.path.join(webots_pkg, 'launch', 'ackermann_webots.launch.py')
         ),
         launch_arguments={
-            'training_mode': 'true',
+            'training_mode': training_mode,
         }.items()
     )
 
@@ -32,16 +36,17 @@ def generate_launch_description():
 
     rl_master_node = Node(
         package='vehicle_controller',
-        executable='rl_master',
-        name='rl_master',
+        executable='episode_manager',
+        name='episode_manager',
         output='screen',
         parameters=[
-            {'training_mode': True,
-            'use_sim_time': True}
+            {'training_mode': training_mode,
+             'use_sim_time': True}
             ]
     )
 
     return LaunchDescription([
+        declare_training_mode,
         webots_launch,
         controller_launch,
         rl_master_node

@@ -535,7 +535,8 @@ void CarDriver::step()
       last_rl_trigger_ = current_time;
   }
 
-  if (!waiting_cmd_ && (current_time - last_rl_trigger_ >= RL_PERIOD)) {
+  if ((!training_mode_ || !waiting_cmd_) &&
+      (current_time - last_rl_trigger_ >= RL_PERIOD)) {
       last_rl_trigger_ = current_time;
 
       // Publicar trigger
@@ -545,10 +546,11 @@ void CarDriver::step()
       rl_trigger_pub_->publish(trig);
 
       trigger_stamp_ns_ = rclcpp::Time(trig.stamp).nanoseconds();
-      waiting_cmd_      = true;
+      waiting_cmd_      = training_mode_;
 
       if (training_mode_) {
-          wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
+            wb_supervisor_simulation_set_mode(
+              WB_SUPERVISOR_SIMULATION_MODE_REAL_TIME);
 
           // Spin hasta recibir el cmd_vel nuevo o timeout de seguridad
           auto deadline = std::chrono::steady_clock::now()

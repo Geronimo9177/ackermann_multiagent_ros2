@@ -18,9 +18,9 @@ def generate_launch_description():
     declare_training_mode = DeclareLaunchArgument(
         'training_mode',
         default_value='false',
-        description='true = FAST + pause cada 50ms | false = tiempo real sin pausa'
+        description='true = tiempo real durante el calculo y FAST despues | false = tiempo real'
     )
-    
+
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time', default_value='true',
         description='Sincroniza todos los nodos con /clock de Webots (Ros2Supervisor)'

@@ -34,7 +34,7 @@ setup(
         'topp = vehicle_controller.topp:main',
         'trajectory_publisher = vehicle_controller.trajectory_publisher:main',
         'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
-        'rl_master = vehicle_controller.rl_master:main',
+        'episode_manager = vehicle_controller.episode_manager:main',
     ],
 },
 
