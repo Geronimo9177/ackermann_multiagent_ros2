@@ -53,13 +53,8 @@ install(DIRECTORY include/
 
 # ── Install launch files, worlds, and models ─────────────────────────────────────────────────
 install(
-  DIRECTORY config launch worlds models
+  DIRECTORY config launch worlds models controllers
   DESTINATION share/${PROJECT_NAME}
-)
-
-install(PROGRAMS
-  include/vehicle_webots/odometry_fusion.py
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(FILES vehicle_webots_plugin.xml

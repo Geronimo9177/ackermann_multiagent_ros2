@@ -5,6 +5,12 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Quaternion.h"
+#include <tf2/LinearMath/Matrix3x3.h>
+
+#include <chrono>
+#include <thread>
+#include "std_msgs/msg/header.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 // ── Vehicle constants ─────────────────────────────────────────────
 static constexpr double WHEELBASE    = 2.94;
@@ -51,7 +57,7 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     wb_position_sensor_enable(left_steer_sensor_,  timestep);
     wb_position_sensor_enable(right_steer_sensor_, timestep);
 
-    // ── IMU stack ─────────────────────────────────────────────────
+    // ── Sensor stack ─────────────────────────────────────────────────
     imu_   = wb_robot_get_device("imu");
     gyro_  = wb_robot_get_device("gyro");
     accel_ = wb_robot_get_device("accel");
@@ -72,6 +78,11 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
 
     self_node_ = wb_supervisor_node_get_self();
 
+    trans_field_ = wb_supervisor_node_get_field(self_node_, "translation");
+    rot_field_   = wb_supervisor_node_get_field(self_node_, "rotation");
+
+    viewpoint_node_ = wb_supervisor_node_get_from_def("VIEWPOINT");
+
     // ── Camera info ───────────────────────────────────────────────
     cam_width_  = wb_camera_get_width(camera_);
     cam_height_ = wb_camera_get_height(camera_);
@@ -89,14 +100,102 @@ void CarDriver::init(webots_ros2_driver::WebotsNode *node,
     acc_noise_ = std::normal_distribution<double>(0.0, ACC_STDDEV);
     mag_noise_ = std::normal_distribution<double>(0.0, MAG_STDDEV);
 
+    // ── RL ────────────────────────────────────────────────────────
+    training_mode_ = node->declare_parameter("training_mode", false);
+
+    rl_trigger_pub_ = node->create_publisher<std_msgs::msg::Header>(
+        "/sim/trigger", 1);
+
+    start_sub_ = node->create_subscription<std_msgs::msg::Bool>(
+    "/sim/start", 1,
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {
+        if (msg->data && !system_ready_) {
+            system_ready_ = true;
+            RCLCPP_INFO(node_->get_logger(), "RL start received, activating sync");
+            if (training_mode_) {
+                wb_supervisor_simulation_set_mode(
+                    WB_SUPERVISOR_SIMULATION_MODE_FAST);
+            }
+        }
+    });
+
+    reset_sub_ = node->create_subscription<std_msgs::msg::Bool>(
+    "/sim/reset", 1,
+    [this](const std_msgs::msg::Bool::SharedPtr) {
+        system_ready_ = false;   
+        waiting_cmd_  = false;
+        last_rl_trigger_ = -1.0;
+        target_speed_ = 0.0;
+        target_steer_ = 0.0;
+        wbu_driver_set_cruising_speed(0.0);
+        wbu_driver_set_steering_angle(0.0);
+
+        wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_REAL_TIME);
+        wb_supervisor_node_reset_physics(self_node_);
+
+        const double origin_trans[3] = {0.0, 0.0, 0.0};
+        const double origin_rot[4]   = {0.0, 0.0, 1.0, 0.0}; 
+        
+        wb_supervisor_field_set_sf_vec3f(trans_field_, origin_trans);
+        wb_supervisor_field_set_sf_rotation(rot_field_, origin_rot);
+
+        if (viewpoint_node_) {
+            WbFieldRef view_pos = wb_supervisor_node_get_field(viewpoint_node_, "position");
+            WbFieldRef view_ori = wb_supervisor_node_get_field(viewpoint_node_, "orientation");
+            
+            const double cam_origin[3] = {-20.0, 8.0, 6.0};
+            const double cam_rot[4]    = {0.0, 0.4, -0.8, 0.35};
+            
+            wb_supervisor_field_set_sf_vec3f(view_pos, cam_origin);
+            wb_supervisor_field_set_sf_rotation(view_ori, cam_rot);
+        }
+
+        x_ = 0.0;
+        y_ = 0.0;
+        theta_ = 0.0;
+        last_left_pos_  = wb_position_sensor_get_value(left_rear_sensor_);
+        last_right_pos_ = wb_position_sensor_get_value(right_rear_sensor_);
+
+        geometry_msgs::msg::PoseWithCovarianceStamped pose_msg;
+        pose_msg.header.stamp = node_->get_clock()->now();
+        
+        pose_msg.pose.pose.position.x = 0.0;
+        pose_msg.pose.pose.position.y = 0.0;
+        pose_msg.pose.pose.position.z = 0.0;
+        pose_msg.pose.pose.orientation.x = 0.0;
+        pose_msg.pose.pose.orientation.y = 0.0;
+        pose_msg.pose.pose.orientation.z = 0.0;
+        pose_msg.pose.pose.orientation.w = 1.0;
+
+        pose_msg.pose.covariance.fill(0.0);
+        pose_msg.pose.covariance[0]  = 1e-9;
+        pose_msg.pose.covariance[7]  = 1e-9;
+        pose_msg.pose.covariance[14] = 1e-9;
+        pose_msg.pose.covariance[21] = 1e-9;
+        pose_msg.pose.covariance[28] = 1e-9;
+        pose_msg.pose.covariance[35] = 1e-9;
+
+        // EKF Local
+        pose_msg.header.frame_id = "odom";
+        set_pose_local_pub_->publish(pose_msg);
+
+        // EKF Global
+        pose_msg.header.frame_id = "map";
+        set_pose_global_pub_->publish(pose_msg);
+        
+        RCLCPP_INFO(node_->get_logger(), "Simulation Reset");
+    });
+
     // ── Publishers ────────────────────────────────────────────────
-    odom_pub_ = node->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
-    gt_pub_   = node->create_publisher<nav_msgs::msg::Odometry>("/ground_truth_odom", 10);
-    imu_pub_  = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data_raw", 10);
-    mag_pub_  = node->create_publisher<sensor_msgs::msg::MagneticField>("/magnetometer", 10);
-    gps_pub_  = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
-    seg_pub_  = node->create_publisher<sensor_msgs::msg::Image>("/camera/segmentation", 10);
-    js_pub_   = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+    odom_pub_            = node->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+    gt_pub_              = node->create_publisher<nav_msgs::msg::Odometry>("/ground_truth_odom", 10);
+    imu_pub_             = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data_raw", 10);
+    mag_pub_             = node->create_publisher<sensor_msgs::msg::MagneticField>("/magnetometer", 10);
+    gps_pub_             = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
+    seg_pub_             = node->create_publisher<sensor_msgs::msg::Image>("/camera/segmentation", 10);
+    js_pub_              = node->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+    set_pose_local_pub_  = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/ekf_local/set_pose", 1);
+    set_pose_global_pub_ = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/ekf_global/set_pose", 1);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node);
 
@@ -116,8 +215,10 @@ void CarDriver::cmdVelCallback(
 {
     double v     = msg->twist.linear.x;
     double omega = msg->twist.angular.z;
-
     double phi = 0.0;
+    int64_t stamp_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
+    last_cmd_stamp_ns_ = stamp_ns;
+
     if (std::abs(v) > 0.01) {
         phi = -std::atan2(WHEELBASE * omega, v);
         if (v < 0.0) phi = -phi;
@@ -126,6 +227,12 @@ void CarDriver::cmdVelCallback(
     target_steer_ = std::clamp(phi, -MAX_STEERING, MAX_STEERING);
     wbu_driver_set_cruising_speed(v * 3.6);  // m/s to km/h
     wbu_driver_set_steering_angle(target_steer_);
+
+    if (training_mode_ && waiting_cmd_ && stamp_ns > trigger_stamp_ns_) {
+        // Llegó un cmd_vel nuevo posterior al trigger → reanudar
+        waiting_cmd_ = false;
+        wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -241,11 +348,19 @@ void CarDriver::publishGroundTruth()
 
   // Rotation matrix 
   const double *rot = wb_supervisor_node_get_orientation(self_node_);
-  // rot = [r00 r01 r02 r10 r11 r12 r20 r21 r22]
-  // yaw = atan2(r10, r00)
-  double yaw = std::atan2(rot[3], rot[0]);
 
-  // Ground truth velocity in world frame
+  tf2::Matrix3x3 mat(
+      rot[0], rot[1], rot[2],
+      rot[3], rot[4], rot[5],
+      rot[6], rot[7], rot[8]
+  );
+
+  tf2::Quaternion q;
+  mat.getRotation(q);
+
+  double roll, pitch, yaw;
+  mat.getRPY(roll, pitch, yaw);
+
   const double *vel = wb_supervisor_node_get_velocity(self_node_);
 
   // Transform velocity to body frame
@@ -262,8 +377,11 @@ void CarDriver::publishGroundTruth()
   msg.pose.pose.position.x = pos[0];
   msg.pose.pose.position.y = pos[1];
   msg.pose.pose.position.z = pos[2];
-  msg.pose.pose.orientation.z = std::sin(yaw / 2.0);
-  msg.pose.pose.orientation.w = std::cos(yaw / 2.0);
+  
+  msg.pose.pose.orientation.x = q.x();
+  msg.pose.pose.orientation.y = q.y();
+  msg.pose.pose.orientation.z = q.z();
+  msg.pose.pose.orientation.w = q.w();
 
   msg.twist.twist.linear.x  = vx_b;
   msg.twist.twist.linear.y  = vy_b;
@@ -411,10 +529,51 @@ void CarDriver::step()
   }
 
   publishGroundTruth();
+  if (!system_ready_) return;
+  // ── RL sync: trigger al MPC cada 50ms de simulación ──────────────
+  if (last_rl_trigger_ < 0.0) {
+      last_rl_trigger_ = current_time;
+  }
+
+  if ((!training_mode_ || !waiting_cmd_) &&
+      (current_time - last_rl_trigger_ >= RL_PERIOD)) {
+      last_rl_trigger_ = current_time;
+
+      // Publicar trigger
+      std_msgs::msg::Header trig;
+      trig.stamp    = node_->get_clock()->now();
+      trig.frame_id = std::to_string(current_time);  // sim time para debug
+      rl_trigger_pub_->publish(trig);
+
+      trigger_stamp_ns_ = rclcpp::Time(trig.stamp).nanoseconds();
+      waiting_cmd_      = training_mode_;
+
+      if (training_mode_) {
+            wb_supervisor_simulation_set_mode(
+              WB_SUPERVISOR_SIMULATION_MODE_REAL_TIME);
+
+          // Spin hasta recibir el cmd_vel nuevo o timeout de seguridad
+          auto deadline = std::chrono::steady_clock::now()
+                        + std::chrono::milliseconds(200);  // 200ms real máximo
+
+          while (waiting_cmd_ && std::chrono::steady_clock::now() < deadline) {
+              rclcpp::spin_some(node_->get_node_base_interface());
+              std::this_thread::sleep_for(std::chrono::microseconds(200));
+          }
+
+          if (waiting_cmd_) {
+              // Timeout: MPC no respondió, reanudar de todas formas
+              waiting_cmd_ = false;
+              RCLCPP_WARN(node_->get_logger(),
+                  "MPC timeout, resuming without new command");
+              wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_FAST);
+          }
+          // Si no hubo timeout, rlCmdCallback ya reanudó
+      }
+    // En validación: no pausar, seguir corriendo en tiempo real
+  }
 }
-
-}  // namespace vehicle_webots
-
+} // namespace vehicle_webots
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(vehicle_webots::CarDriver,
                        webots_ros2_driver::PluginInterface)

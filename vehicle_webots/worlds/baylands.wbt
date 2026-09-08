@@ -3,6 +3,7 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "../models/tesla/TeslaModel3.proto"
+EXTERNPROTO "./SpeedBump.proto"
 
 WorldInfo {
   info ["Tesla vehicle simulation"]
@@ -15,9 +16,8 @@ WorldInfo {
   lineScale 1
   contactProperties [
     ContactProperties {
-      coulombFriction [
-        8
-      ]
+      coulombFriction [ 8 ]
+      bounce  0.0
       softCFM 1e-05
       bumpSound ""
       rollSound ""
@@ -25,9 +25,8 @@ WorldInfo {
     }
     ContactProperties {
       material2 "TeslaModel3Wheel"
-      coulombFriction [
-        8
-      ]
+      coulombFriction [ 8 ]
+      bounce  0.0
       softCFM 1e-05
       bumpSound ""
       rollSound ""
@@ -36,10 +35,9 @@ WorldInfo {
   ]
 }
 
-Viewpoint {
+DEF VIEWPOINT Viewpoint {
   orientation 0.0 0.4 -0.8 0.35
   position -20 8 6
-  near 1
   follow "tesla"
   followSmoothness 0
 }
@@ -124,22 +122,109 @@ Solid {
 }
 
 # --- SPEEDBUMPS ---
-Solid {
-  translation 0 0 -2.45
-  name "speedbumps"
-  recognitionColors [ 1 0 0 ]
+DEF speedbump_01 SpeedBump {
+  name "speedbump_01"
+  mesh "media/speedbumps/speedbump_01.obj"
+}
 
-  children [
-    CadShape {
-      url ["media/speedbumps.obj"]
-    }
-  ]
+DEF speedbump_02 SpeedBump {
+  name "speedbump_02"
+  mesh "media/speedbumps/speedbump_02.obj"
+}
 
-  boundingObject Mesh {
-    url ["media/speedbumps.obj"]
-  }
+DEF speedbump_03 SpeedBump {
+  name "speedbump_03"
+  mesh "media/speedbumps/speedbump_03.obj"
+}
 
-  locked TRUE
+DEF speedbump_04 SpeedBump {
+  name "speedbump_04"
+  mesh "media/speedbumps/speedbump_04.obj"
+}
+
+DEF speedbump_05 SpeedBump {
+  name "speedbump_05"
+  mesh "media/speedbumps/speedbump_05.obj"
+}
+
+DEF speedbump_06 SpeedBump {
+  name "speedbump_06"
+  mesh "media/speedbumps/speedbump_06.obj"
+}
+
+DEF speedbump_07 SpeedBump {
+  name "speedbump_07"
+  mesh "media/speedbumps/speedbump_07.obj"
+}
+
+DEF speedbump_08 SpeedBump {
+  name "speedbump_08"
+  mesh "media/speedbumps/speedbump_08.obj"
+}
+
+DEF speedbump_09 SpeedBump {
+  name "speedbump_09"
+  mesh "media/speedbumps/speedbump_09.obj"
+}
+
+DEF speedbump_10 SpeedBump {
+  name "speedbump_10"
+  mesh "media/speedbumps/speedbump_10.obj"
+}
+
+DEF speedbump_11 SpeedBump {
+  name "speedbump_11"
+  mesh "media/speedbumps/speedbump_11.obj"
+}
+
+DEF speedbump_12 SpeedBump {
+  name "speedbump_12"
+  mesh "media/speedbumps/speedbump_12.obj"
+}
+
+DEF speedbump_13 SpeedBump {
+  name "speedbump_13"
+  mesh "media/speedbumps/speedbump_13.obj"
+}
+
+DEF speedbump_14 SpeedBump {
+  name "speedbump_14"
+  mesh "media/speedbumps/speedbump_14.obj"
+}
+
+DEF speedbump_15 SpeedBump {
+  name "speedbump_15"
+  mesh "media/speedbumps/speedbump_15.obj"
+}
+
+DEF speedbump_16 SpeedBump {
+  name "speedbump_16"
+  mesh "media/speedbumps/speedbump_16.obj"
+}
+
+DEF speedbump_17 SpeedBump {
+  name "speedbump_17"
+  mesh "media/speedbumps/speedbump_17.obj"
+}
+
+DEF speedbump_18 SpeedBump {
+  name "speedbump_18"
+  mesh "media/speedbumps/speedbump_18.obj"
+}
+
+DEF speedbump_19 SpeedBump {
+  name "speedbump_19"
+  mesh "media/speedbumps/speedbump_19.obj"
+}
+
+DEF speedbump_20 SpeedBump {
+  name "speedbump_20"
+  mesh "media/speedbumps/speedbump_20.obj"
+}
+
+DEF speedbump_21 SpeedBump {
+  name "speedbump_21"
+  mesh "media/speedbumps/speedbump_21.obj"
 }
 
 
@@ -155,12 +240,13 @@ DEF tesla TeslaModel3 {
     Camera {
           name "camera"
           translation -2.12 0 0.93
-          fieldOfView 1
-          width 360
-          height 240
+          rotation 0 1 0 0.178
+          fieldOfView 0.45
+          width 128
+          height 96
           
           recognition Recognition {
-            maxRange 30
+            maxRange 15
             segmentation TRUE
           }
     }
@@ -179,4 +265,13 @@ DEF tesla TeslaModel3 {
       accuracy 1.5
     }
   ]
+}
+
+# ── SpeedBump Supervisor (ROS2) ─────────────────────────────
+DEF speedbump_controller Robot {
+  translation 0 0 0
+  name "speedbump_supervisor"
+  controller "SpeedBumpSupervisor"
+  supervisor TRUE
+  window "<none>"
 }

@@ -1,5 +1,3 @@
-import os
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -13,35 +11,25 @@ def generate_launch_description():
 
     run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
 
-    vehicle = LaunchConfiguration('vehicle')
-
     declare_run_debug_visualizer = DeclareLaunchArgument(
         'run_debug_visualizer',
         default_value='false',
         description='Run mpc_debug_visualizer when true',
     )
 
-    declare_vehicle = DeclareLaunchArgument(
-        'vehicle',
-        default_value='tesla',
-        description='Vehicle model: toyota or tesla'
-    )
-
     vehicle_config = PathJoinSubstitution([
-        FindPackageShare('vehicle_controller'), 'config', [vehicle, '.yaml']
+        FindPackageShare('vehicle_controller'), 'config', ['tesla.yaml']
     ])
 
     return LaunchDescription([
 
         declare_run_debug_visualizer,
-        declare_vehicle,
 
         Node(
             package='vehicle_controller',
             executable='ackermann_mpc',
             name='ackermann_mpc',
             output='screen',
-            parameters=[vehicle_config],
         ),
 
         Node(

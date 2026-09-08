@@ -13,6 +13,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/trajectories', glob('trajectories/*.csv')),
+        ('share/' + package_name + '/trajectories/train', glob('trajectories/train/*.csv')),
+        ('share/' + package_name + '/trajectories/test', glob('trajectories/test/*.csv')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
@@ -32,6 +34,7 @@ setup(
         'topp = vehicle_controller.topp:main',
         'trajectory_publisher = vehicle_controller.trajectory_publisher:main',
         'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
+        'episode_manager = vehicle_controller.episode_manager:main',
     ],
 },
 

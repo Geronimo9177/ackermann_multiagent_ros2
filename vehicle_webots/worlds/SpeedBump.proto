@@ -1,0 +1,25 @@
+#VRML_SIM R2025a utf8
+
+PROTO SpeedBump [
+  field SFVec3f translation 0 0 -2.45
+  field SFString name "speedbump"
+  field MFString mesh []
+] {
+  Solid {
+    translation IS translation
+    name IS name
+    recognitionColors [ 1 0 0 ]
+
+    children [
+      CadShape {
+        url IS mesh
+      }
+    ]
+
+    boundingObject Mesh {
+      url IS mesh
+    }
+
+    locked TRUE
+  }
+}
