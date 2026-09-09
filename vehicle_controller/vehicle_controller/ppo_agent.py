@@ -62,13 +62,11 @@ class PPOAgentNode(Node):
 
         # ── Parameters ────────────────────────────────────────────
         self.declare_parameter('training_mode',    True)
-        self.declare_parameter('use_ground_truth', False)
         self.declare_parameter('run_id',           'ppo_run')
         self.declare_parameter('checkpoint_dir',   CONFIG['checkpoint_dir'])
         self.declare_parameter('seed',              0)
 
         self.training_mode    = self.get_parameter('training_mode').value
-        self.use_ground_truth = self.get_parameter('use_ground_truth').value
         self.run_id           = self.get_parameter('run_id').value
         self.ckpt_dir         = self.get_parameter('checkpoint_dir').value
         self.seed             = int(self.get_parameter('seed').value)
@@ -182,9 +180,7 @@ class PPOAgentNode(Node):
         self.create_subscription(Float64MultiArray, '/mpc/debug',
                                 self._mpc_debug_cb, 10)
 
-        odom_topic = '/ground_truth_odom' if self.use_ground_truth \
-                     else '/odometry/fused'
-        self.create_subscription(Odometry, odom_topic,
+        self.create_subscription(Odometry, '/ground_truth_odom',
                                  self._odom_cb, 10)
 
         # ── Publishers ────────────────────────────────────────────
