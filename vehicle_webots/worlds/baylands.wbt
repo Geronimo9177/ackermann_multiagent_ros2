@@ -240,7 +240,7 @@ DEF tesla TeslaModel3 {
     Camera {
           name "camera"
           translation -2.12 0 0.93
-          rotation 0 1 0 0.178
+          rotation 0 1 0 0.175
           fieldOfView 0.45
           width 128
           height 96

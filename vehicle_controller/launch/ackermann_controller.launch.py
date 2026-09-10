@@ -10,6 +10,13 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
 
     run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
+    control_mode         = LaunchConfiguration('control_mode')
+
+    declare_control_mode = DeclareLaunchArgument(
+        'control_mode',
+        default_value='nominal',
+        description="'nominal' = MPC puro | 'rule_based' = MPC + regla de frenado por cámara"
+    )
 
     declare_run_debug_visualizer = DeclareLaunchArgument(
         'run_debug_visualizer',
@@ -22,7 +29,7 @@ def generate_launch_description():
     ])
 
     return LaunchDescription([
-
+        declare_control_mode,
         declare_run_debug_visualizer,
 
         Node(
@@ -30,6 +37,7 @@ def generate_launch_description():
             executable='ackermann_mpc',
             name='ackermann_mpc',
             output='screen',
+            parameters=[{'control_mode': control_mode}]
         ),
 
         Node(

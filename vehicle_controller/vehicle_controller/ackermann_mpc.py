@@ -10,6 +10,7 @@ import time
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import TwistStamped, PoseStamped
 from std_msgs.msg import Float64MultiArray, Bool
+from sensor_msgs.msg import Image
 from tf_transformations import quaternion_matrix
 
 from std_msgs.msg import Header
@@ -49,17 +50,25 @@ def _yaw_from_pose(pose_stamped):
 
 class AckermannMPC(Node):
 
+    DETECTION_ROW_FRACTION = 0.5   # only look at the bottom half of the image for speed bumps
+    DETECTION_PIXEL_COUNT  = 15    # minimum number of pixels to consider a speed bump detected
+
+    BRAKE_SPEED    = 4.0   # m/s
+    BRAKE_DURATION = 2.0   # s
+
     def __init__(self):
         super().__init__('ackermann_mpc')
 
         # MPC parameters
-        self.declare_parameter('use_ground_truth', False)
+        self.declare_parameter('control_mode', 'nominal')  # 'nominal' | 'rule_based'
         self.declare_parameter('dt', 0.05)
         self.declare_parameter('N', 20)
         self.declare_parameter('wheelbase', 2.55)
         self.declare_parameter('max_steer', 0.6458)
         self.declare_parameter('max_speed', 8.0)
 
+        self.control_mode = self.get_parameter('control_mode').value
+        self.rule_based = (self.control_mode == 'rule_based')
         self.dt               = self.get_parameter('dt').value
         self.N                = self.get_parameter('N').value
         self.L                = self.get_parameter('wheelbase').value
@@ -91,6 +100,13 @@ class AckermannMPC(Node):
         self.goal_tolerance  = 0.10
         self.route_completed = False
 
+        self.braking_until = None
+
+        if self.rule_based:
+            self.create_subscription(
+                Image, '/camera/segmentation', self._segmentation_cb, 1)
+            self.get_logger().info('Rule-based mode: subscribed to /camera/segmentation')
+
         # ── Subscribers ──────────────────────────────────────────────
         self.create_subscription(Odometry, '/ground_truth_odom',
                             self.odom_cb, 10)
@@ -114,8 +130,6 @@ class AckermannMPC(Node):
         self.setup_mpc()
         self.get_logger().info('MPC solver ready!')
 
-        self.create_timer(2.0,     self.debug_status)
-
     def _trigger_cb(self, msg: Header):
         self.control_loop()
 
@@ -123,15 +137,24 @@ class AckermannMPC(Node):
         self.prev_u = np.zeros(2)
         self.last_solution = None
         self.yaw_cont = None
-        self.current_path  = None
+        self.path_received = False
+        self.braking_until = None
         self.current_idx = None
         self.get_logger().info("MPC internal state reset.")
 
-    def debug_status(self):
-        self.get_logger().info(
-            f'Odom: {self.odom_received} | Path: {self.path_received} | Idx: {self.current_idx} | '
-            f'State: [{self.state[0]:.2f}, {self.state[1]:.2f}, {np.degrees(self.state[2]):.1f}°] | '
-        )
+    def _segmentation_cb(self, msg: Image):
+        img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width)
+        row_start = int(msg.height * self.DETECTION_ROW_FRACTION)
+        roi = img[row_start:, :]
+
+        speedbump_pixels = np.count_nonzero(roi >= 200)
+
+        if speedbump_pixels >= self.DETECTION_PIXEL_COUNT:
+            now = self.get_clock().now().nanoseconds * 1e-9
+            if self.braking_until is None or now > self.braking_until:
+                self.get_logger().info(
+                    f'Speed bump detected!')
+            self.braking_until = now + self.BRAKE_DURATION
 
     # ── MPC setup ────────────────────────────────────────────────────
     def setup_mpc(self):
@@ -258,7 +281,17 @@ class AckermannMPC(Node):
 
     def get_v_ref_at(self, idx, t):
         idx_a = min(idx, len(self.v_arr) - 2)
-        return float((1.0 - t) * self.v_arr[idx_a] + t * self.v_arr[idx_a + 1])
+        v_ref = float((1.0 - t) * self.v_arr[idx_a] + t * self.v_arr[idx_a + 1])
+
+        if self.rule_based and self.braking_until is not None:
+            now = self.get_clock().now().nanoseconds * 1e-9
+            if now <= self.braking_until:
+                return min(v_ref, self.BRAKE_SPEED)
+            else:
+                self.braking_until = None
+                self.get_logger().info('Braking window ended.')
+
+        return v_ref
 
     def get_yaw_ref_at(self, idx, t):
         idx_a = min(idx, len(self.yaw_arr) - 2)
@@ -298,11 +331,6 @@ class AckermannMPC(Node):
             best_t    = 0.0
 
         if best_idx != self.current_idx:
-            self.get_logger().info(
-                f'Segment: {self.current_idx} → {best_idx} '
-                f'(t={best_t:.2f}, dist={best_dist:.3f}m)',
-                throttle_duration_sec=1.0
-            )
             self.current_idx = best_idx
         self.current_t = best_t
 

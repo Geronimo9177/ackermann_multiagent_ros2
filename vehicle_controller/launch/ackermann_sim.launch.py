@@ -8,11 +8,26 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
 
+    run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
     training_mode = LaunchConfiguration('training_mode')
+    control_mode         = LaunchConfiguration('control_mode')
 
     declare_training_mode = DeclareLaunchArgument(
         'training_mode', default_value='true',
         description='true = training; false = tiempo real')
+
+    declare_control_mode = DeclareLaunchArgument(
+        'control_mode',
+        default_value='nominal',
+        description="'nominal' = MPC puro | 'rule_based' = MPC + regla de frenado por cámara"
+    )
+
+    declare_run_debug_visualizer = DeclareLaunchArgument(
+        'run_debug_visualizer',
+        default_value='false',
+        description='Run mpc_debug_visualizer when true',
+    )
+
     webots_pkg = get_package_share_directory('vehicle_webots')
     controller_pkg = get_package_share_directory('vehicle_controller')
 
@@ -30,11 +45,12 @@ def generate_launch_description():
             os.path.join(controller_pkg, 'launch', 'ackermann_controller.launch.py')
         ),
         launch_arguments={
-            'run_debug_visualizer': 'false',
+            'control_mode': control_mode,
+            'run_debug_visualizer': run_debug_visualizer,
         }.items()
     )
 
-    rl_master_node = Node(
+    episode_manager_node = Node(
         package='vehicle_controller',
         executable='episode_manager',
         name='episode_manager',
@@ -47,7 +63,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_training_mode,
+        declare_control_mode,
+        declare_run_debug_visualizer,
         webots_launch,
         controller_launch,
-        rl_master_node
+        episode_manager_node
     ])
