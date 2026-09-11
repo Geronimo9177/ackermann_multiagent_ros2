@@ -174,6 +174,14 @@ class RLMaster(Node):
 
         self._progress_history.clear()
 
+        if not self.training_mode:
+            # Evaluation: leave every speed bump exactly where it is,
+            # skip the reset service entirely.
+            self.get_logger().info(
+                f'[Ep {self._episode_count}] Test mode - speed bumps left as-is: {traj_file}')
+            self._spawn_trajectory_publisher(traj_file)
+            return
+
         self.get_logger().info(
             f'[Ep {self._episode_count}] Resetting speed bumps before: {traj_file}')
 
@@ -201,6 +209,9 @@ class RLMaster(Node):
         self.get_logger().info(
             f'[Ep {self._episode_count}] {response.message}')
 
+        self._spawn_trajectory_publisher(traj_file)
+
+    def _spawn_trajectory_publisher(self, traj_file):
         # Immediate termination of the previous process to avoid freezes
         if self._traj_process is not None:
             try:

@@ -37,6 +37,7 @@ setup(
         'ppo_debug_visualizer = vehicle_controller.ppo_debug_visualizer:main',
         'rl_master = vehicle_controller.rl_master:main',
         'ppo_agent = vehicle_controller.ppo_agent:main',
+        'test_logger = vehicle_controller.test_logger:main',
     ],
 },
 
