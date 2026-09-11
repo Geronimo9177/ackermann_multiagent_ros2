@@ -35,6 +35,7 @@ setup(
         'trajectory_publisher = vehicle_controller.trajectory_publisher:main',
         'mpc_debug_visualizer = vehicle_controller.mpc_debug_visualizer:main',
         'episode_manager = vehicle_controller.episode_manager:main',
+        'test_logger = vehicle_controller.test_logger:main',
     ],
 },
 

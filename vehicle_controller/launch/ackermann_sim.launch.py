@@ -1,16 +1,22 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, RegisterEventHandler
+from launch.conditions import UnlessCondition
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+
+LOG_DIR_BASE = os.path.join(os.path.expanduser('~'), 'mpc_test_logs')
 
 def generate_launch_description():
 
     run_debug_visualizer = LaunchConfiguration('run_debug_visualizer')
     training_mode = LaunchConfiguration('training_mode')
     control_mode         = LaunchConfiguration('control_mode')
+    log_dir = PythonExpression(["'", LOG_DIR_BASE, "_' + '", control_mode, "'"])
 
     declare_training_mode = DeclareLaunchArgument(
         'training_mode', default_value='true',
@@ -61,11 +67,32 @@ def generate_launch_description():
             ]
     )
 
+    test_logger_node = Node(
+        package='vehicle_controller',
+        executable='test_logger',
+        name='test_logger',
+        output='screen',
+        condition=UnlessCondition(training_mode),
+        parameters=[{
+            'output_dir':    log_dir,
+            'control_mode':  control_mode,
+        }]
+    )
+
+    shutdown_on_test_logger_exit = RegisterEventHandler(
+        OnProcessExit(
+            target_action=test_logger_node,
+            on_exit=[EmitEvent(event=Shutdown())],
+        )
+    )
+
     return LaunchDescription([
         declare_training_mode,
         declare_control_mode,
         declare_run_debug_visualizer,
         webots_launch,
         controller_launch,
-        episode_manager_node
+        episode_manager_node,
+        test_logger_node,
+        shutdown_on_test_logger_exit,
     ])

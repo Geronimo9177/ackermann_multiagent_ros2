@@ -3,7 +3,7 @@ from tf_transformations import euler_from_quaternion
 from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, Bool, Int32
+from std_msgs.msg import Float64MultiArray, Bool, Int32, String
 from std_srvs.srv import Trigger
 from nav_msgs.msg import Odometry
 import subprocess
@@ -57,6 +57,7 @@ class EpisodeManager(Node):
         self.start_pub  = self.create_publisher(Bool,  '/sim/start',  1)
         self.reset_pub  = self.create_publisher(Bool,  '/sim/reset',  1)
         self.result_pub = self.create_publisher(Int32, '/rl/result', 1)
+        self.trajectory_id_pub = self.create_publisher(String, '/rl/trajectory_id', 1)
         self.speedbump_client = self.create_client(
             Trigger, '/speedbump_control/reset_episode')
 
@@ -169,7 +170,19 @@ class EpisodeManager(Node):
         self._low_speed_since = None
         self._vehicle_moved   = False
         self._topp_ready      = False
-        
+
+        trajectory_msg = String()
+        trajectory_msg.data = traj_file
+        self.trajectory_id_pub.publish(trajectory_msg)
+
+        if not self.training_mode:
+            # Evaluation: leave every speed bump exactly where it is,
+            # skip the reset service entirely.
+            self.get_logger().info(
+                f'[Ep {self._episode_count}] Test mode - speed bumps left as-is: {traj_file}')
+            self._spawn_trajectory_publisher(traj_file)
+            return
+
         self.get_logger().info(
             f'[Ep {self._episode_count}] Resetting speed bumps before: {traj_file}')
 
@@ -197,6 +210,9 @@ class EpisodeManager(Node):
         self.get_logger().info(
             f'[Ep {self._episode_count}] {response.message}')
 
+        self._spawn_trajectory_publisher(traj_file)
+
+    def _spawn_trajectory_publisher(self, traj_file):
         # Immediately terminate the previous process to prevent freezes
         if self._traj_process is not None:
             try:
